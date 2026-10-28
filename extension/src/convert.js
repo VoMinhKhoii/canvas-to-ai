@@ -3,6 +3,7 @@
 import * as pdfjs from 'pdfjs-dist';
 import JSZip from 'jszip';
 import TurndownService from 'turndown';
+import { pagesToMd } from './pdf-layout.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('pdf.worker.min.mjs');
 
@@ -16,17 +17,29 @@ const CODE_EXTS = new Set([
 
 const extOf = (name) => (name.includes('.') ? name.split('.').pop().toLowerCase() : '');
 export const safe = (s) => s.replace(/[\\/:*?"<>|~\x00-\x1f]+/g, '_').replace(/^[\s.]+|[\s.]+$/g, '').slice(0, 120) || 'untitled';
-const tidy = (s) => s.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+const tidy = (s) => s.replace(/\u00a0/g, ' ').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 
 // HTML → Markdown. Headings are pushed down under our "###" item heading, link
 // URLs are dropped (tokens the AI can't use), and lists use compact markers.
 // resolveImage(imgNode) returns Markdown for an image, or '' to drop it.
 function htmlToMd(html, resolveImage = () => '') {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  // Inline elements laid out apart by CSS ("<b>Customer Portal</b>Architecture lab")
+  // would run together as text; put a space between them.
+  for (const el of doc.body.querySelectorAll('span, button, label, a, b, strong, em, small')) {
+    const next = el.nextSibling;
+    if (next && (next.nodeType === Node.ELEMENT_NODE || /^[\p{L}\p{N}]/u.test(next.textContent))) el.after(' ');
+  }
+
   const td = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced', bulletListMarker: '-' });
-  td.remove(['script', 'style', 'noscript', 'iframe', 'svg']);
+  td.escape = (s) => s; // Markdown escapes like "1\." only cost tokens
+  td.remove(['script', 'style', 'noscript', 'iframe', 'svg', 'nav']);
   td.addRule('shiftHeadings', {
     filter: ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'],
-    replacement: (content, node) => `\n\n${'#'.repeat(Math.min(6, Number(node.nodeName[1]) + 3))} ${content.trim()}\n\n`,
+    replacement: (content, node) => {
+      const text = content.replace(/\*\*|__/g, '').replace(/\s+/g, ' ').trim();
+      return text ? `\n\n${'#'.repeat(Math.min(6, Number(node.nodeName[1]) + 3))} ${text}\n\n` : '';
+    },
   });
   td.addRule('linkText', { filter: 'a', replacement: (content) => content });
   td.addRule('image', { filter: 'img', replacement: (_, node) => resolveImage(node) });
@@ -39,37 +52,80 @@ function htmlToMd(html, resolveImage = () => '') {
       return prefix + content + (node.nextSibling && !/\n$/.test(content) ? '\n' : '');
     },
   });
-  return tidy(td.turndown(html));
+  const md = td.turndown(doc.body).replace(/^\s*(Previous\s*Next|Previous|Next)\s*$/gm, ''); // Canvas page nav
+  return tidy(md);
 }
 
-async function pdfToMd(buf) {
+const IMAGE_OPS = new Set([pdfjs.OPS.paintImageXObject, pdfjs.OPS.paintInlineImageXObject, pdfjs.OPS.paintImageMaskXObject]);
+const MAX_RENDERED_PAGES = 40;
+
+// A page with little text but real drawings (diagram, screenshot, scan) is worth
+// sending as a picture. Slide templates draw ~2 images on every page, so plain
+// title slides stay text.
+async function isPicturePage(page) {
+  let images = 0;
+  let paths = 0;
+  for (const fn of (await page.getOperatorList()).fnArray) {
+    if (IMAGE_OPS.has(fn)) images++;
+    else if (fn === pdfjs.OPS.constructPath) paths++;
+  }
+  return images >= 3 || paths >= 40;
+}
+
+async function renderPage(page) {
+  const base = page.getViewport({ scale: 1 });
+  const viewport = page.getViewport({ scale: Math.min(2, 1280 / base.width) });
+  const canvas = Object.assign(document.createElement('canvas'), { width: Math.ceil(viewport.width), height: Math.ceil(viewport.height) });
+  await page.render({ canvas, viewport }).promise;
+  return new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.75));
+}
+
+async function pdfToMd(buf, fileId, images) {
   const task = pdfjs.getDocument({ data: new Uint8Array(buf), isEvalSupported: false });
   const doc = await task.promise;
-  const pages = [];
-  for (let i = 1; i <= doc.numPages; i++) {
-    const { items } = await (await doc.getPage(i)).getTextContent();
-    const text = items.map((it) => it.str + (it.hasEOL ? '\n' : '')).join('');
-    pages.push(text.split('\n').map((l) => l.replace(/\s+/g, ' ').trim()).filter(Boolean));
+  const contents = [];
+  for (let i = 1; i <= doc.numPages; i++) contents.push(await (await doc.getPage(i)).getTextContent());
+
+  const out = [];
+  let rendered = 0;
+  for (const [i, { md, headings, bodyChars }] of pagesToMd(contents).entries()) {
+    let pageMd = md;
+    if (bodyChars < 80 && rendered < MAX_RENDERED_PAGES) {
+      try {
+        const page = await doc.getPage(i + 1);
+        if (await isPicturePage(page)) {
+          const name = `${fileId}-p${i + 1}.jpg`;
+          images.set(name, { blob: await renderPage(page) });
+          rendered++;
+          pageMd = [headings, `![](images/${name})`].filter(Boolean).join('\n\n');
+        }
+      } catch {
+        // keep the text version of this page
+      }
+    }
+    if (pageMd) out.push(`[p.${i + 1}]\n${pageMd}`);
   }
   await task.destroy();
-
-  // Drop running headers/footers (lines on most pages) and bare page numbers.
-  const counts = new Map();
-  for (const lines of pages) for (const l of new Set(lines)) counts.set(l, (counts.get(l) || 0) + 1);
-  const repeated = (l) => pages.length >= 4 && counts.get(l) > pages.length / 2;
-  return pages
-    .map((lines, i) => {
-      const kept = lines.filter((l) => !repeated(l) && !/^\d{1,3}$/.test(l));
-      return kept.length ? `[p.${i + 1}]\n${kept.join('\n')}` : '';
-    })
-    .filter(Boolean)
-    .join('\n\n');
+  return out.join('\n\n');
 }
 
 const xml = (s) => new DOMParser().parseFromString(s, 'application/xml');
 const textOf = (el, tag) => [...el.getElementsByTagName(tag)].map((t) => t.textContent).join('');
-const paragraphs = (el) =>
-  [...el.getElementsByTagName('a:p')].map((p) => textOf(p, 'a:t').trim()).filter(Boolean);
+// Text of one DrawingML paragraph; <a:br/> line breaks become spaces.
+const paraText = (p) =>
+  [...p.getElementsByTagName('*')]
+    .map((e) => (e.tagName === 'a:t' ? e.textContent : e.tagName === 'a:br' ? ' ' : ''))
+    .join('')
+    .replace(/\s+/g, ' ')
+    .trim();
+const paragraphs = (el) => [...el.getElementsByTagName('a:p')].map(paraText).filter(Boolean);
+
+// Body placeholders are bulleted unless turned off; plain text boxes only when they ask for it.
+function isBullet(sp, p) {
+  const pPr = p.getElementsByTagName('a:pPr')[0];
+  if (pPr?.getElementsByTagName('a:buNone').length) return false;
+  return Boolean(sp.getElementsByTagName('p:ph').length || pPr?.getElementsByTagName('a:buChar').length || pPr?.getElementsByTagName('a:buAutoNum').length);
+}
 
 // Resolve a relationship target ("slides/slide1.xml", "../media/x.png", "/ppt/...") against a folder.
 function resolve(dir, target) {
@@ -100,12 +156,21 @@ async function embeddedImages(zip, el, partRels, fileId, images) {
     if (!path || !IMAGE_EXTS.has(extOf(path))) continue;
     const name = `${fileId}-${path.split('/').pop()}`;
     if (!images.has(name)) {
-      const blob = await zip.file(path)?.async('blob');
-      images.set(name, blob && blob.size >= MIN_IMAGE_BYTES ? { blob } : null);
+      const data = await zip.file(path)?.async('uint8array');
+      const type = `image/${extOf(path).replace('jpg', 'jpeg')}`;
+      images.set(name, data && data.length >= MIN_IMAGE_BYTES ? { blob: new Blob([data], { type }) } : null);
     }
     if (images.get(name)) out.push(`![](images/${name})`);
   }
   return out;
+}
+
+const SKIP_PLACEHOLDERS = new Set(['sldNum', 'ftr', 'dt']); // slide number, footer, date
+
+// Top-left corner of a shape, for reading order.
+function position(sp) {
+  const off = sp.getElementsByTagName('a:off')[0];
+  return off ? [Number(off.getAttribute('y')), Number(off.getAttribute('x'))] : [0, 0];
 }
 
 async function pptxToMd(buf, fileId, images) {
@@ -116,25 +181,40 @@ async function pptxToMd(buf, fileId, images) {
     (s) => presRels.find((r) => r.id === s.getAttribute('r:id')).path,
   );
 
-  const out = [];
+  const slides = [];
   for (const [i, path] of slidePaths.entries()) {
     const slide = xml(await zip.file(path).async('string'));
     if (slide.documentElement.getAttribute('show') === '0') continue; // hidden slide
     let title = '';
     const body = [];
-    for (const sp of slide.getElementsByTagName('p:sp')) {
+    // Shapes are stored in z-order; read them top-to-bottom, left-to-right instead.
+    const shapes = [...slide.getElementsByTagName('p:sp')].sort((a, b) => {
+      const [ay, ax] = position(a);
+      const [by, bx] = position(b);
+      return ay - by || ax - bx;
+    });
+    for (const sp of shapes) {
       const type = sp.getElementsByTagName('p:ph')[0]?.getAttribute('type');
-      const lines = paragraphs(sp);
-      if (!title && (type === 'title' || type === 'ctrTitle')) title = lines.join(' ');
-      else body.push(...lines.map((l) => `- ${l}`));
-    }
-    for (const tbl of slide.getElementsByTagName('a:tbl')) {
-      for (const tr of tbl.getElementsByTagName('a:tr')) {
-        body.push(`| ${[...tr.getElementsByTagName('a:tc')].map((tc) => paragraphs(tc).join(' ')).join(' | ')} |`);
+      if (SKIP_PLACEHOLDERS.has(type)) continue;
+      if (!title && (type === 'title' || type === 'ctrTitle')) {
+        title = paragraphs(sp).join(' ');
+        continue;
+      }
+      for (const p of sp.getElementsByTagName('a:p')) {
+        const text = paraText(p).replace(/^[-•▪●]\s*/, '');
+        if (!text || /^\[\d+\]$/.test(text)) continue; // empty or a lone citation marker
+        const level = Number(p.getElementsByTagName('a:pPr')[0]?.getAttribute('lvl') || 0);
+        body.push(isBullet(sp, p) ? `${'  '.repeat(Math.min(level, 3))}- ${text}` : text);
       }
     }
+    for (const tbl of slide.getElementsByTagName('a:tbl')) {
+      const rows = [...tbl.getElementsByTagName('a:tr')].map(
+        (tr) => `| ${[...tr.getElementsByTagName('a:tc')].map((tc) => paragraphs(tc).join(' ')).join(' | ')} |`,
+      );
+      if (rows.length) body.push(rows[0], rows[0].replace(/[^|]+/g, ' --- '), ...rows.slice(1));
+    }
     const slideRels = await rels(zip, path);
-    body.push(...(await embeddedImages(zip, slide, slideRels, fileId, images)));
+    const pictures = await embeddedImages(zip, slide, slideRels, fileId, images);
 
     const notesPath = slideRels.find((r) => r.type.endsWith('/notesSlide'))?.path;
     let notes = '';
@@ -145,11 +225,23 @@ async function pptxToMd(buf, fileId, images) {
       );
       notes = bodySp ? paragraphs(bodySp).join(' ') : '';
     }
-
-    if (!title && !body.length && !notes) continue;
-    out.push([`#### Slide ${i + 1}${title ? `: ${title}` : ''}`, ...body, notes && `> Notes: ${notes}`].filter(Boolean).join('\n'));
+    slides.push({ number: i + 1, title, body, pictures, notes: /^\d*$/.test(notes) ? '' : notes });
   }
-  return out.join('\n\n');
+
+  // Template noise: text on most slides (typed-in footers) and pictures on 3+
+  // slides (logos, banners).
+  const count = new Map();
+  for (const s of slides) for (const l of new Set([...s.body, ...s.pictures])) count.set(l, (count.get(l) || 0) + 1);
+  const isNoise = (l) => (l.startsWith('![') ? count.get(l) >= 3 : slides.length >= 4 && count.get(l) > slides.length / 2);
+
+  return slides
+    .map((s) => {
+      const lines = [...s.body, ...s.pictures].filter((l) => !isNoise(l));
+      if (!s.title && !lines.length && !s.notes) return '';
+      return [`#### Slide ${s.number}${s.title ? `: ${s.title}` : ''}`, ...lines, s.notes && `> Notes: ${s.notes}`].filter(Boolean).join('\n');
+    })
+    .filter(Boolean)
+    .join('\n\n');
 }
 
 async function docxToMd(buf, fileId, images) {
@@ -201,7 +293,7 @@ async function fileToMd(file) {
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const images = new Map();
   let md;
-  if (ext === 'pdf') md = await pdfToMd(await res.arrayBuffer());
+  if (ext === 'pdf') md = await pdfToMd(await res.arrayBuffer(), file.id, images);
   else if (ext === 'pptx') md = await pptxToMd(await res.arrayBuffer(), file.id, images);
   else if (ext === 'docx') md = await docxToMd(await res.arrayBuffer(), file.id, images);
   else {
@@ -270,9 +362,11 @@ export async function buildMarkdown(course, selected, onProgress) {
     }
   }
   if (skipped.length) parts.push(`## Not included\n${skipped.join('\n')}`);
+  const md = parts.join('\n\n') + '\n';
   return {
-    md: parts.join('\n\n') + '\n',
+    md,
     skipped: skipped.length,
-    images: [...images].filter(([, src]) => src).map(([name, src]) => ({ name, ...src })),
+    // Only images the Markdown still references (template logos were filtered out).
+    images: [...images].filter(([name, src]) => src && md.includes(`images/${name})`)).map(([name, src]) => ({ name, ...src })),
   };
 }
