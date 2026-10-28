@@ -42,20 +42,20 @@ export async function pdfToMd(bytes, { fileId, pdf }) {
     contents.push({ ...(await page.getTextContent()), view: page.view });
   }
 
-  const unreadable = contents.map(scrambled);
+  for (const c of contents) if (scrambled(c)) Object.assign(c, { items: [], scrambled: true }); // left out of the layout
+
   const assets = new Map();
   const out = [];
-  for (const [i, { md, bodyChars }] of pagesToMd(contents.map((c, k) => (unreadable[k] ? { ...c, items: [] } : c))).entries()) {
+  for (const [i, { md, bodyChars }] of pagesToMd(contents).entries()) {
     let pageMd = md;
-    if (unreadable[i]) {
+    const name = imageName(`${fileId}-p${i + 1}.jpg`);
+    if (contents[i].scrambled) {
       const blob = assets.size < MAX_RENDERED_PAGES ? await render(pdf.renderPage, doc, i + 1) : null;
-      const name = imageName(`${fileId}-p${i + 1}.jpg`);
       if (blob) assets.set(name, { blob });
       pageMd = blob ? `_(this page's text is scrambled in the file, so it is sent as a picture)_\n\n${imageRef(name)}` : "_(this page's text is scrambled in the file and can't be read)_";
     } else if (bodyChars < 80 && assets.size < MAX_RENDERED_PAGES) {
       const blob = await renderIfPicture(lib, pdf.renderPage, doc, i + 1, Boolean(md));
       if (blob) {
-        const name = imageName(`${fileId}-p${i + 1}.jpg`);
         assets.set(name, { blob });
         pageMd = [md, imageRef(name)].filter(Boolean).join('\n\n'); // keep the (short) text too
       }

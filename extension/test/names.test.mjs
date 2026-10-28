@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { imageName } from '../src/pack/names.js';
+import { imageName, pathAllocator } from '../src/pack/names.js';
 
 test('safe names are unchanged', () => {
   assert.equal(imageName('56375725-image19.png'), '56375725-image19.png');
@@ -26,7 +26,6 @@ test('long names are cut to 100 characters, keeping the file name and staying di
 });
 
 test('one download run never gives two different things the same path', async () => {
-  const { pathAllocator } = await import('../src/pack/names.js');
   const place = pathAllocator();
   assert.equal(place('W1', 'notes (2).txt', 'file:1'), 'W1/notes (2).txt');
   assert.equal(place('W1', 'notes.txt', 'file:2'), 'W1/notes.txt');

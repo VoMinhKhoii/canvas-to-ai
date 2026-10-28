@@ -5,6 +5,7 @@ import { makePdf } from './helpers/pdf.mjs';
 import JSZip from 'jszip';
 
 const { createPackBuilder } = await import('../src/pack/build.js');
+const { scrambled } = await import('../src/pack/formats/pdf.js');
 const { isReadable } = await import('../src/pack/formats/index.js');
 
 // The file seam, in memory: Canvas file details by id, bytes by URL.
@@ -154,7 +155,6 @@ test('the contents list of every zip inside a zip counts toward the length cap',
 });
 
 test('a PDF page whose font scrambles its text is recognised; ordinary text is not', async () => {
-  const { scrambled } = await import('../src/pack/formats/pdf.js');
   // As pdf.js returns it for a font with no glyph-to-letter map (a real course PDF).
   const page = (str) => ({ items: [{ str }] });
   assert.ok(scrambled(page('$GYDQFLQJ\u0003WKH\u00033UDFWLFH\u0003:KDW\u0003LV\u00036\\VWHPV\u0003(QJLQHHULQJ')));

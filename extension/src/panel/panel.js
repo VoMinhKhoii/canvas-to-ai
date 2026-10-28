@@ -11,8 +11,6 @@ import { folderCards, folderCard, pickedLine, loadingCards, termsCard } from './
 const $ = (id) => document.getElementById(id);
 const COURSE_URL = /^https:\/\/[^/]+\.instructure\.com\/courses\/(\d+)/;
 const COPY_LABEL = 'Copy text for AI';
-const TERMS_KEY = 'canvas-to-ai:terms'; // the version of the terms the student agreed to
-const TERMS_VERSION = '1';
 
 // pdf.js and a canvas to render picture pages, loaded on the first PDF.
 const pdf = {
@@ -49,8 +47,10 @@ function message(html) {
   $('folders').innerHTML = `<p class="message">${html}</p>`;
 }
 
-// Whether the student agreed to the current terms (see termsCard), this time
-// or before (remembered in localStorage when it is available).
+// Terms: shown before anything is read from Canvas, and from ⋯ › AI use and
+// terms. Agreeing is remembered in localStorage when it is available.
+const TERMS_KEY = 'canvas-to-ai:terms'; // the version of the terms the student agreed to
+const TERMS_VERSION = '1';
 let agreedNow = false;
 function agreed() {
   try {
@@ -58,6 +58,17 @@ function agreed() {
   } catch {
     return agreedNow;
   }
+}
+function showTerms() {
+  $('folders').innerHTML = termsCard(state.course ? 'Back to the course' : 'I understand');
+  $('agree').addEventListener('click', () => {
+    agreedNow = true;
+    try {
+      localStorage.setItem(TERMS_KEY, TERMS_VERSION);
+    } catch {}
+    if (state.course) $('folders').innerHTML = folderCards(state.course, state.sel, state.open);
+    else scan();
+  });
 }
 
 async function scan() {
@@ -219,7 +230,7 @@ const folderDir = (course, folder) => `Canvas/${safe(course.name)}/${String(cour
 const download = (url, filename) => chrome.downloads.download({ url, filename, conflictAction: 'overwrite', saveAs: false });
 
 async function downloadTree(course, packs, entries) {
-  const wanted = entries.filter(({ item }) => !item.locked && (item.kind === 'file' || (item.kind === 'page' && item.html)));
+  const wanted = entries.filter(({ item }) => !item.locked && item.kind !== 'link');
   const place = pathAllocator(); // files and pages share the folders: no name is used twice
   let files = 0;
   let pages = 0;
@@ -256,8 +267,7 @@ async function downloadTree(course, packs, entries) {
 // The ⋯ menu's actions. A scan can start while one runs: each keeps the
 // course it began with.
 const downloadPicked = ({ course, packs, sel }) => downloadTree(course, packs, sel.picked());
-const downloadCourse = ({ course, packs }) =>
-  downloadTree(course, packs, course.folders.flatMap((folder) => folder.sections.flatMap((section) => section.items.map((item) => ({ folder, section, item })))));
+const downloadCourse = ({ course, packs, sel }) => downloadTree(course, packs, sel.all());
 
 async function saveWithPictures({ course }) {
   const pack = await currentPack();
@@ -274,10 +284,6 @@ function clearPicks({ course, sel }) {
   updateBar();
 }
 
-function showTerms() {
-  $('folders').innerHTML = termsCard(state.course ? 'Back to the course' : 'I understand');
-}
-
 const ACTIONS = { picked: downloadPicked, course: downloadCourse, save: saveWithPictures, clear: clearPicks, terms: showTerms };
 menu.addEventListener('click', async (e) => {
   const action = ACTIONS[e.target.closest('[data-action]')?.dataset.action];
@@ -288,17 +294,6 @@ menu.addEventListener('click', async (e) => {
   } catch (err) {
     setStatus(`That didn't work: ${err.message}`, 'error');
   }
-});
-
-// The terms card's button: agree once, then show (or scan) the course.
-$('folders').addEventListener('click', (e) => {
-  if (e.target.id !== 'agree') return;
-  agreedNow = true;
-  try {
-    localStorage.setItem(TERMS_KEY, TERMS_VERSION);
-  } catch {}
-  if (state.course) $('folders').innerHTML = folderCards(state.course, state.sel, state.open);
-  else scan();
 });
 
 $('rescan').addEventListener('click', scan);

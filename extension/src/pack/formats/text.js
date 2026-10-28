@@ -69,8 +69,6 @@ export function subtitles(text) {
   return { md, assets: none() };
 }
 
-// Rich Text: control words and destination groups ({\*\...}, fonts, colours,
-// pictures) removed, paragraphs and escaped characters kept.
 // Calendar invites (.ics): each event's title, time, place and description.
 // Attendee lists (people's emails), time-zone rules, the invite's HTML copy and
 // long tracking links (meeting joins through mail filters) are left out.
@@ -99,6 +97,8 @@ export function calendar(text) {
   return { md, assets: none() };
 }
 
+// Rich Text: control words and destination groups ({\*\...}, fonts, colours,
+// pictures) removed, paragraphs and escaped characters kept.
 export function rtf(text) {
   let s = text;
   // Drop groups that hold no body text (font/colour tables, pictures, metadata).
