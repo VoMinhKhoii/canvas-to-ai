@@ -149,3 +149,10 @@ test('left-hand superscript stays with its expression', () => {
   const [out] = md(page([t('14', 72, 706, { size: 8, width: 8 }), t('C', 82, 700), t('is radioactive', 92, 700)]));
   assert.equal(out, '14 C is radioactive');
 });
+
+test('nearby superscripts each attach to their own base', () => {
+  const [sup] = md(page([t('x', 72, 700), t('2', 78, 706, { size: 8, width: 4 }), t('+y', 82, 700), t('2', 94, 706, { size: 8, width: 4 })]));
+  assert.equal(sup, 'x2+y2');
+  const [sub] = md(page([t('x', 72, 700), t('1', 78, 696, { size: 8, width: 4 }), t('+y', 82, 700), t('2', 94, 696, { size: 8, width: 4 })]));
+  assert.equal(sub, 'x1+y2');
+});

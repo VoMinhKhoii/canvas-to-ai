@@ -62,22 +62,53 @@ function inMargin(l, [, bottom, , top], body) {
 const round = (n) => Math.round(n * 2) / 2;
 const key = (text) => text.replace(/\d+/g, '#');
 
-// pdf.js items → { str, x, y, w, size, mono }, top-to-bottom then left-to-right.
+// pdf.js items → { str, x, y, w, size, mono, base }, top-to-bottom then
+// left-to-right. base is set on superscripts/subscripts (see linkScripts).
 function toFrags(items, styles) {
-  return items
-    .filter((it) => it.str)
-    .map((it) => {
+  const frags = [];
+  const words = []; // non-blank fragments in content-stream order
+  let breakBefore = false; // a line break (hasEOL) since the previous word
+  for (const it of items) {
+    if (it.str) {
       const [, , c, d, x, y] = it.transform;
-      return { str: it.str, x, y, w: it.width, size: Math.hypot(c, d) || it.height, mono: styles[it.fontName]?.fontFamily === 'monospace' };
-    })
-    .filter((f) => f.size > 0)
-    .sort((a, b) => b.y - a.y || a.x - b.x);
+      const f = { str: it.str, x, y, w: it.width, size: Math.hypot(c, d) || it.height, mono: styles[it.fontName]?.fontFamily === 'monospace' };
+      if (f.size > 0) {
+        frags.push(f);
+        if (f.str.trim()) {
+          words.push({ f, breakBefore });
+          breakBefore = false;
+        }
+      }
+    }
+    if (it.hasEOL) breakBefore = true;
+  }
+  linkScripts(words);
+  return frags.sort((a, b) => b.y - a.y || a.x - b.x);
+}
+
+// A superscript/subscript is written in the same text run as its base: it is
+// the base's neighbour in the content stream with no line break between them.
+// It must also be short (≤ 3 characters), smaller, raised or lowered within
+// -0.35..+0.6 em of the base, and touch the base's end (E = mc², x₁) or start
+// (¹⁴C). Text on another row or a separately drawn badge never qualifies.
+function linkScripts(words) {
+  const isScriptOf = (f, g) => {
+    if (f.str.trim().length > 3 || f.size >= g.size * 0.85) return false;
+    const d = f.y - g.y;
+    if (!(d > -g.size * 0.35 && d < g.size * 0.6)) return false;
+    return Math.abs(f.x - (g.x + g.w)) <= g.size * 0.5 || Math.abs(g.x - (f.x + f.w)) <= g.size * 0.5;
+  };
+  for (const [i, { f, breakBefore }] of words.entries()) {
+    const prev = !breakBefore && words[i - 1]?.f;
+    const next = words[i + 1] && !words[i + 1].breakBefore && words[i + 1].f;
+    f.base = [prev, next].find((g) => g && isScriptOf(f, g)) ?? null;
+  }
 }
 
 // Two fragments of a text line: similar sizes within half a line, or any sizes
 // on the same baseline (small caps, mixed fonts). Font boxes overstate glyph
 // height, so extents are not compared. Superscripts/subscripts are handled
-// separately (scriptBase), so no rule here lets a fragment be offset from the
+// separately (linkScripts), so no rule here lets a fragment be offset from the
 // line, and a line's anchor never moves: nothing can bridge two rows.
 function sameLine(a, b) {
   const [big, small] = a.size >= b.size ? [a, b] : [b, a];
@@ -86,38 +117,10 @@ function sameLine(a, b) {
   return Math.abs(d) < small.size * 0.25;
 }
 
-// The text a fragment is a superscript/subscript of, or null. Needs all of:
-// short (≤ 3 characters); smaller; raised or lowered within -0.35..+0.6 em;
-// touching an edge of that text, just after its end (E = mc², x₁) or just
-// before its start (¹⁴C); and no similar-size text on its own baseline within
-// 2 em (ordinary text on a row below a big heading has row neighbours).
-function scriptBase(f, frags) {
-  if (f.str.trim().length > 3) return null;
-  const similar = (h) => h.size >= f.size * 0.85 && h.size <= f.size / 0.85;
-  const hasRowPeer = frags.some(
-    (h) => h !== f && h.str.trim() && similar(h) && Math.abs(h.y - f.y) < f.size * 0.5 && (h.x > f.x ? h.x - (f.x + f.w) : f.x - (h.x + h.w)) < f.size * 2,
-  );
-  if (hasRowPeer) return null;
-  return (
-    frags.find((g) => {
-      if (g === f || !g.str.trim() || f.size >= g.size * 0.85) return false;
-      const d = f.y - g.y;
-      if (!(d > -g.size * 0.35 && d < g.size * 0.6)) return false;
-      const afterEnd = Math.abs(f.x - (g.x + g.w)) <= g.size * 0.5;
-      const beforeStart = Math.abs(g.x - (f.x + f.w)) <= g.size * 0.5;
-      return afterEnd || beforeStart;
-    }) ?? null
-  );
-}
-
 // Fragments → arrays of fragments, one per line. Scripts are set aside, lines
 // are formed from the rest, then each script joins its base text's line.
 function groupByBaseline(frags) {
-  const base = new Map();
-  for (const f of frags) {
-    const g = scriptBase(f, frags);
-    if (g) base.set(f, g);
-  }
+  const base = new Map(frags.filter((f) => f.base).map((f) => [f, f.base]));
   const lines = [];
   const lineOf = new Map();
   for (const f of frags) {
