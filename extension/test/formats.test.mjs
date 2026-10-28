@@ -72,6 +72,20 @@ test('doc: a damaged formatting record is an error, not a hang', async () => {
   await assert.rejects(convert('broken.doc', XLSX.CFB.write(cfb, { type: 'array' })));
 });
 
+test('doc: an embedded object with streams of the same names does not hide the document', async () => {
+  const sample = XLSX.CFB.read(new Uint8Array(fixture('SampleDoc.doc')), { type: 'array' });
+  const out = XLSX.CFB.utils.cfb_new();
+  // The embedded object comes first, as in a real course file.
+  XLSX.CFB.utils.cfb_add(out, '/ObjectPool/_1192176770/1Table', new Uint8Array(64));
+  XLSX.CFB.utils.cfb_add(out, '/ObjectPool/_1192176770/WordDocument', new Uint8Array(64));
+  for (const [i, path] of sample.FullPaths.entries()) {
+    const entry = sample.FileIndex[i];
+    if (entry.type === 2 && entry.content) XLSX.CFB.utils.cfb_add(out, path.replace(/^[^/]*/, ''), entry.content);
+  }
+  const { md } = await convert('notes.doc', XLSX.CFB.write(out, { type: 'array' }));
+  assert.match(md, /^I am a test document/);
+});
+
 test('doc: a piece that points outside the document is an error, not a short text', async () => {
   const cfb = XLSX.CFB.read(new Uint8Array(fixture('SampleDoc.doc')), { type: 'array' });
   const word = XLSX.CFB.find(cfb, 'WordDocument').content;
@@ -226,6 +240,20 @@ test('captions become a transcript; rtf keeps its text; notebooks keep code cell
   const nb = JSON.stringify({ metadata: { kernelspec: { language: 'python' } }, cells: [{ cell_type: 'markdown', source: ['# Lab'] }, { cell_type: 'code', source: 'print(1)' }] });
   assert.equal((await convert('lab.ipynb', nb)).md, '# Lab\n\n```python\nprint(1)\n```');
   assert.equal((await convert('Dockerfile', 'FROM node:22\n')).md, '```dockerfile\nFROM node:22\n```');
+});
+
+test('Arduino sketches, systemd units and calendars are read as text', async () => {
+  assert.equal((await convert('blink.ino', 'void loop() {}\n')).md, '```cpp\nvoid loop() {}\n```');
+  assert.match((await convert('app.service', '[Unit]\nDescription=App\n')).md, /^```ini\n\[Unit\]/);
+  assert.match((await convert('class.ics', 'BEGIN:VCALENDAR\nSUMMARY:Lab 1\nEND:VCALENDAR')).md, /SUMMARY:Lab 1/);
+});
+
+test('a CSV of hundreds of thousands of rows shows the first 500 and says how many more', async () => {
+  const csv = ['Name,Year', ...Array.from({ length: 300_000 }, (_, i) => `n${i},2012`)].join('\n');
+  const { md } = await convert('names.csv', csv);
+  assert.match(md, /\| n498 \| 2012 \|/);
+  assert.ok(!md.includes('| n499 |'));
+  assert.match(md, /299,501 more rows not shown/);
 });
 
 test('files that cannot be read say why, in plain words', () => {

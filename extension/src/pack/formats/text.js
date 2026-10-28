@@ -15,6 +15,7 @@ export const CODE = {
   css: 'css', scss: 'scss', less: 'less', xml: 'xml', json: 'json', yml: 'yaml', yaml: 'yaml', toml: 'toml',
   ini: 'ini', cfg: 'ini', conf: 'ini', properties: 'properties', gradle: 'groovy', groovy: 'groovy',
   tex: 'latex', bib: 'bibtex', graphql: 'graphql', proto: 'protobuf', sol: 'solidity', v: 'verilog', vhd: 'vhdl',
+  ino: 'cpp', service: 'ini', // Arduino sketches; systemd units
 };
 // Build files known by name rather than extension.
 export const CODE_NAMES = { dockerfile: 'dockerfile', makefile: 'makefile', 'cmakelists.txt': 'cmake', jenkinsfile: 'groovy' };

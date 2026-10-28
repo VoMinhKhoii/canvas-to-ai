@@ -41,7 +41,7 @@ const FORMATS = {
   vtt: text(subtitles), srt: text(subtitles),
   rtf: text(rtf),
   md: text(markdown), markdown: text(markdown), rmd: text(markdown), qmd: text(markdown),
-  txt: text(plain), rst: text(plain), adoc: text(plain), log: text(plain),
+  txt: text(plain), rst: text(plain), adoc: text(plain), log: text(plain), ics: text(plain),
 };
 for (const [ext, lang] of Object.entries(CODE)) FORMATS[ext] ??= text(code(lang));
 

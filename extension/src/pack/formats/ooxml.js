@@ -111,7 +111,7 @@ function slideText(slide) {
   }
   for (const tbl of slide.getElementsByTagName('a:tbl')) {
     const rows = [...tbl.getElementsByTagName('a:tr')].map((tr) => [...tr.getElementsByTagName('a:tc')].map((tc) => paragraphs(tc).join(' ')));
-    if (rows.length) body.push(...mdTable(rows).split('\n').map((md) => ({ md, template: false })));
+    if (rows.length) for (const md of mdTable(rows).split('\n')) body.push({ md, template: false });
   }
   return { title, body };
 }
