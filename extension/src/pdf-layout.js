@@ -6,6 +6,8 @@
 //
 // Pure functions (no DOM) so it can be tested in Node.
 
+import { contentHeading, mdTable } from './md.js';
+
 // Glyphs that are always bullets (incl. Symbol/Wingdings private-use code points).
 const BULLET_GLYPHS = new Set([...'•●▪■➢►▶∙◦○‣⁃', '\uf0a7', '\uf0b7', '\uf0d8', '\uf076', '\uf0fc', '\uf0e0', '\uf06e']);
 
@@ -32,7 +34,7 @@ const BULLET_PREFIX = /^[•●▪■➢►▶∙◦○‣⁃�
 // Returns per page { md, bodyChars }: bodyChars counts non-heading text (low =
 // the page is mostly a picture).
 export function pagesToMd(pages) {
-  const pageLines = pages.map(({ items, styles }) => toLines(items, styles));
+  const pageLines = pages.map(({ items, styles }) => groupByBaseline(toFrags(items, styles)).map(assembleLine).filter((l) => l && l.text));
   const all = pageLines.flat();
   const body = bodySize(all);
   const headingSizes = [...new Set(all.filter((l) => isHeadingLine(l, body)).map((l) => round(l.size)))].sort((a, b) => b - a);
@@ -42,7 +44,9 @@ export function pagesToMd(pages) {
   return pageLines.map((lines, i) => {
     const margin = new Set(margins[i]);
     const kept = lines.filter((l) => !(margin.has(l) && (repeated.has(key(l.text)) || /^\d{1,3}$/.test(l.text))));
-    return render(kept, body, headingSizes);
+    const blocks = toBlocks(kept, body, headingSizes);
+    const bodyChars = blocks.filter((b) => b.kind !== 'h').reduce((n, b) => n + blockText(b).length, 0);
+    return { md: blocksToMd(blocks), bodyChars };
   });
 }
 
@@ -53,78 +57,79 @@ const inMargin = (l, height, body) => height > 0 && l.size <= body && (l.y > hei
 const round = (n) => Math.round(n * 2) / 2;
 const key = (text) => text.replace(/\d+/g, '#');
 
-function toLines(items, styles) {
-  const frags = items
+// pdf.js items → { str, x, y, w, size, mono }, top-to-bottom then left-to-right.
+function toFrags(items, styles) {
+  return items
     .filter((it) => it.str)
     .map((it) => {
       const [, , c, d, x, y] = it.transform;
       return { str: it.str, x, y, w: it.width, size: Math.hypot(c, d) || it.height, mono: styles[it.fontName]?.fontFamily === 'monospace' };
     })
-    .filter((f) => f.size > 0);
-  frags.sort((a, b) => b.y - a.y || a.x - b.x);
+    .filter((f) => f.size > 0)
+    .sort((a, b) => b.y - a.y || a.x - b.x);
+}
 
-  // A fragment joins the current line by baseline distance to the fragment that
-  // started the line (never a later one, so a big glyph can't bridge two rows):
-  // similar sizes within half a line; a much smaller fragment
-  // only as a superscript/subscript (baseline within -0.35..+0.6 em of the big
-  // one). Font boxes overstate glyph height, so extents are not compared.
-  const sameLine = (a, b) => {
-    const [big, small] = a.size >= b.size ? [a, b] : [b, a];
-    const d = small.y - big.y;
-    if (small.size >= big.size * 0.85) return Math.abs(d) < small.size * 0.5;
-    return d > -big.size * 0.35 && d < big.size * 0.6;
-  };
+// A fragment joins the current line by baseline distance to the fragment that
+// started the line (never a later one, so a big glyph can't bridge two rows):
+// similar sizes within half a line; a much smaller fragment only as a
+// superscript/subscript (baseline within -0.35..+0.6 em of the big one). Font
+// boxes overstate glyph height, so extents are not compared.
+function sameLine(a, b) {
+  const [big, small] = a.size >= b.size ? [a, b] : [b, a];
+  const d = small.y - big.y;
+  if (small.size >= big.size * 0.85) return Math.abs(d) < small.size * 0.5;
+  return d > -big.size * 0.35 && d < big.size * 0.6;
+}
+
+// Fragments → arrays of fragments, one per line.
+function groupByBaseline(frags) {
   const lines = [];
   for (const f of frags) {
     const line = lines.at(-1);
-    if (line && sameLine(line.main, f)) {
-      line.frags.push(f);
-    } else {
-      lines.push({ main: f, frags: [f] });
-    }
+    if (line && sameLine(line.first, f)) line.frags.push(f);
+    else lines.push({ first: f, frags: [f] });
   }
+  return lines.map((l) => l.frags.sort((a, b) => a.x - b.x));
+}
 
-  return lines
-    .map((line) => {
-      line.frags.sort((a, b) => a.x - b.x);
-      const visible = line.frags.filter((f) => f.str.trim());
-      if (!visible.length) return null;
-      // Bullet glyph drawn as its own fragment (e.g. "•" or PowerPoint's Courier "o").
-      const glyphBullet = visible.length > 1 && visible[0].str.trim().length === 1 && isGlyphBullet(visible[0], visible[1]);
-      const textFrags = glyphBullet ? visible.slice(1) : visible;
+// One line's fragments → { text, y, x, size, bullet, mono, cells }, or null if blank.
+function assembleLine(frags) {
+  const visible = frags.filter((f) => f.str.trim());
+  if (!visible.length) return null;
+  // Bullet glyph drawn as its own fragment (e.g. "•" or PowerPoint's Courier "o").
+  const glyphBullet = visible.length > 1 && visible[0].str.trim().length === 1 && isGlyphBullet(visible[0], visible[1]);
+  const textFrags = glyphBullet ? visible.slice(1) : visible;
+  const joinFrags = glyphBullet ? frags.slice(frags.indexOf(visible[1])) : frags;
 
-      // Join fragments; a wide gap (> 1.5 em) starts a new table cell.
-      const cells = [''];
-      let end = null;
-      for (const f of glyphBullet ? line.frags.slice(line.frags.indexOf(visible[1])) : line.frags) {
-        const gap = end === null ? 0 : f.x - end;
-        if (cells.at(-1).trim() && f.str.trim() && gap > f.size * 1.5) cells.push('');
-        else if (gap > f.size * 0.15 && !/\s$/.test(cells.at(-1)) && !/^\s/.test(f.str)) cells[cells.length - 1] += ' ';
-        cells[cells.length - 1] += f.str;
-        if (f.str.trim()) end = f.x + f.w;
-      }
-      const cellTexts = cells.map((c) => c.replace(/\s+/g, ' ').trim()).filter(Boolean);
-      let text = cellTexts.join(' ');
-      let bullet = glyphBullet;
-      if (!bullet && BULLET_PREFIX.test(text)) {
-        bullet = true;
-        text = text.replace(BULLET_PREFIX, '');
-      }
-      const monoChars = textFrags.filter((f) => f.mono).reduce((n, f) => n + f.str.trim().length, 0);
-      const chars = textFrags.reduce((n, f) => n + f.str.trim().length, 0);
-      const main = textFrags.reduce((a, b) => (b.size > a.size ? b : a)); // baseline: the biggest text
-      return {
-        text,
-        y: main.y,
-        x: visible[0].x,
-        textX: textFrags[0].x,
-        size: main.size, // ignore the bullet glyph's size
-        bullet,
-        mono: !bullet && (monoChars >= chars * 0.8 || looksLikeCode(text)),
-        cells: cellTexts.length > 1 ? cellTexts : null,
-      };
-    })
-    .filter((l) => l && l.text);
+  // Join fragments; a wide gap (> 1.5 em) starts a new table cell.
+  const cells = [''];
+  let end = null;
+  for (const f of joinFrags) {
+    const gap = end === null ? 0 : f.x - end;
+    if (cells.at(-1).trim() && f.str.trim() && gap > f.size * 1.5) cells.push('');
+    else if (gap > f.size * 0.15 && !/\s$/.test(cells.at(-1)) && !/^\s/.test(f.str)) cells[cells.length - 1] += ' ';
+    cells[cells.length - 1] += f.str;
+    if (f.str.trim()) end = f.x + f.w;
+  }
+  const cellTexts = cells.map((c) => c.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  let text = cellTexts.join(' ');
+  let bullet = glyphBullet;
+  if (!bullet && BULLET_PREFIX.test(text)) {
+    bullet = true;
+    text = text.replace(BULLET_PREFIX, '');
+  }
+  const monoChars = textFrags.filter((f) => f.mono).reduce((n, f) => n + f.str.trim().length, 0);
+  const chars = textFrags.reduce((n, f) => n + f.str.trim().length, 0);
+  const main = textFrags.reduce((a, b) => (b.size > a.size ? b : a)); // baseline: the biggest text
+  return {
+    text,
+    y: main.y,
+    x: visible[0].x,
+    size: main.size, // ignore the bullet glyph's size
+    bullet,
+    mono: !bullet && (monoChars >= chars * 0.8 || looksLikeCode(text)),
+    cells: cellTexts.length > 1 ? cellTexts : null,
+  };
 }
 
 // Most common font size of prose (code is often smaller), weighted by characters.
@@ -147,14 +152,24 @@ function repeatedLines(pageLines) {
   return new Set(pageLines.length >= 4 ? [...counts].filter(([, n]) => n > limit).map(([k]) => k) : []);
 }
 
-function render(lines, body, headingSizes) {
-  // Bullet nesting: cluster the x positions of bullets on this page.
-  const bulletXs = [...new Set(lines.filter((l) => l.bullet).map((l) => Math.round(l.x)))].sort((a, b) => a - b);
-  const levels = [];
-  for (const x of bulletXs) levels.push(levels.length && x - levels.at(-1).x <= 5 ? { x, level: levels.at(-1).level } : { x, level: levels.length ? levels.at(-1).level + 1 : 0 });
-  const levelOf = (x) => Math.min(3, levels.find((l) => l.x === Math.round(x))?.level ?? 0);
+// Bullet nesting: cluster the x positions of a page's bullets (within 5pt of
+// the previous one = same level). Returns rounded x → level.
+function bulletLevels(lines) {
+  const xs = [...new Set(lines.filter((l) => l.bullet).map((l) => Math.round(l.x)))].sort((a, b) => a - b);
+  const levels = new Map();
+  let prev = null;
+  for (const x of xs) {
+    levels.set(x, prev === null ? 0 : x - prev <= 5 ? levels.get(prev) : levels.get(prev) + 1);
+    prev = x;
+  }
+  return levels;
+}
 
-  const blocks = []; // { kind: 'h' | 'p' | 'li' | 'code', text, last: line }
+// Lines → blocks: { kind: 'h' | 'p' | 'li' | 'code' | 'table', last: line, ... }.
+// Each line either extends the previous block or starts a new one.
+function toBlocks(lines, body, headingSizes) {
+  const levels = bulletLevels(lines);
+  const blocks = [];
   for (const line of lines) {
     const prev = blocks.at(-1);
     const gap = prev ? prev.last.y - line.y : Infinity;
@@ -163,56 +178,49 @@ function render(lines, body, headingSizes) {
     if (line.mono) {
       if (prev?.kind === 'code' && gap <= line.size * 3) prev.lines.push(line);
       else blocks.push({ kind: 'code', lines: [line] });
-      blocks.at(-1).last = line;
-      continue;
-    }
-    if (isHeadingLine(line, body)) {
+    } else if (isHeadingLine(line, body)) {
       if (prev?.kind === 'h' && gap <= line.size * 2.2 && Math.abs(prev.last.size - line.size) < 1) prev.text += ` ${line.text}`;
       else blocks.push({ kind: 'h', text: line.text, depth: Math.min(2, headingSizes.indexOf(round(line.size))) });
-      blocks.at(-1).last = line;
-      continue;
-    }
-    // Table rows: consecutive multi-cell lines.
-    if (line.cells && !line.bullet) {
+    } else if (line.cells && !line.bullet) {
+      // Table rows: consecutive multi-cell lines.
       if (prev?.kind === 'table' && gap <= line.size * 3) prev.rows.push(line.cells);
       else blocks.push({ kind: 'table', rows: [line.cells] });
-      blocks.at(-1).last = line;
-      continue;
+    } else if (line.bullet) {
+      blocks.push({ kind: 'li', text: line.text, level: Math.min(3, levels.get(Math.round(line.x)) ?? 0), bulletX: line.x });
+    } else {
+      // Wrapped continuation of the previous paragraph or bullet, else a new paragraph.
+      const sameSize = prev && Math.abs(prev.last.size - line.size) <= 1;
+      const indentOk = prev?.kind === 'li' ? line.x > prev.bulletX : true;
+      if ((prev?.kind === 'p' || prev?.kind === 'li') && close && sameSize && indentOk) {
+        prev.text = /[a-z]-$/.test(prev.text) ? prev.text + line.text : `${prev.text} ${line.text}`;
+      } else {
+        blocks.push({ kind: 'p', text: line.text });
+      }
     }
-    if (line.bullet) {
-      blocks.push({ kind: 'li', text: line.text, level: levelOf(line.x), bulletX: line.x, last: line });
-      continue;
-    }
-    // Wrapped continuation of the previous paragraph or bullet.
-    const sameSize = prev && Math.abs(prev.last.size - line.size) <= 1;
-    const indentOk = prev?.kind === 'li' ? line.x > prev.bulletX : true;
-    if ((prev?.kind === 'p' || prev?.kind === 'li') && close && sameSize && indentOk) {
-      prev.text = /[a-z]-$/.test(prev.text) ? prev.text + line.text : `${prev.text} ${line.text}`;
-      prev.last = line;
-      continue;
-    }
-    blocks.push({ kind: 'p', text: line.text, last: line });
+    blocks.at(-1).last = line;
   }
+  return blocks;
+}
 
+function blockText(b) {
+  if (b.kind === 'code') return b.lines.map((l) => l.text).join('');
+  if (b.kind === 'table') return b.rows.flat().join('');
+  return b.text;
+}
+
+function blocksToMd(blocks) {
   let out = '';
-  const bodyChars = blocks
-    .filter((b) => b.kind !== 'h')
-    .reduce((n, b) => n + (b.text ?? (b.lines ? b.lines.map((l) => l.text) : b.rows.flat()).join('')).length, 0);
   for (const [i, b] of blocks.entries()) {
     const sep = i === 0 ? '' : b.kind === 'li' && blocks[i - 1].kind === 'li' ? '\n' : '\n\n';
-    if (b.kind === 'h') out += `${sep}${'#'.repeat(4 + b.depth)} ${b.text}`;
+    if (b.kind === 'h') out += sep + contentHeading(b.depth + 1, b.text);
     else if (b.kind === 'li') out += `${sep}${'  '.repeat(b.level)}- ${b.text}`;
-    else if (b.kind === 'p') out += `${sep}${b.text}`;
-    else if (b.kind === 'table') {
-      const width = Math.max(...b.rows.map((r) => r.length));
-      if (b.rows.length === 1) out += `${sep}${b.rows[0].join(' | ')}`; // lone row: just keep the cells apart
-      else out += sep + [b.rows[0], Array(width).fill('---'), ...b.rows.slice(1)].map((r) => `| ${r.join(' | ')} |`).join('\n');
-    }
+    else if (b.kind === 'p') out += sep + b.text;
+    else if (b.kind === 'table') out += sep + (b.rows.length === 1 ? b.rows[0].join(' | ') : mdTable(b.rows)); // lone row: just keep the cells apart
     else {
       const minX = Math.min(...b.lines.map((l) => l.x));
       const code = b.lines.map((l) => ' '.repeat(Math.max(0, Math.round((l.x - minX) / (l.size * 0.6)))) + l.text);
       out += `${sep}\`\`\`\n${code.join('\n')}\n\`\`\``;
     }
   }
-  return { md: out, bodyChars };
+  return out;
 }

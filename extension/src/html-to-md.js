@@ -1,5 +1,6 @@
 // HTML (Canvas pages, announcements, .html files) → compact Markdown.
 import TurndownService from 'turndown';
+import { contentHeading } from './md.js';
 
 const tidy = (s) => s.replace(/\u00a0/g, ' ').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 
@@ -27,7 +28,7 @@ export function htmlToMd(html, resolveImage = () => '') {
       // taken from the DOM rather than re-parsed out of the Markdown.
       const text = node.textContent.replace(/\s+/g, ' ').trim();
       const images = [...node.querySelectorAll('img')].map(resolveImage).filter(Boolean);
-      const heading = text && `${'#'.repeat(Math.min(6, Number(node.nodeName[1]) + 3))} ${text}`;
+      const heading = text && contentHeading(Number(node.nodeName[1]), text);
       const out = [heading, ...images].filter(Boolean).join('\n\n');
       return out ? `\n\n${out}\n\n` : '';
     },

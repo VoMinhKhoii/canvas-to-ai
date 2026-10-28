@@ -1,22 +1,18 @@
 // Turns selected Canvas items into one compact Markdown document plus the
 // images it references (saved next to it as images/<name>).
 import * as pdfjs from 'pdfjs-dist';
-import JSZip from 'jszip';
 import { pagesToMd } from './pdf-layout.js';
 import { htmlToMd } from './html-to-md.js';
-import { imageName } from './names.js';
+import { pptxToMd, docxToMd } from './ooxml.js';
+import { IMAGE_EXTS, MIN_IMAGE_BYTES, extOf, imageName } from './names.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('pdf.worker.min.mjs');
 
 const MAX_BYTES = 60 * 1024 * 1024;
-const MIN_IMAGE_BYTES = 8 * 1024; // smaller embedded images are icons, bullets, logos
-const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp']);
 const CODE_EXTS = new Set([
-  'txt', 'md', 'csv', 'json', 'yml', 'yaml', 'xml', 'sql', 'sh', 'java', 'js', 'jsx', 'ts', 'tsx',
+  'csv', 'json', 'yml', 'yaml', 'xml', 'sql', 'sh', 'java', 'js', 'jsx', 'ts', 'tsx',
   'py', 'c', 'cpp', 'h', 'cs', 'go', 'rb', 'php', 'kt', 'swift', 'rs', 'css', 'scss', 'r', 'm',
 ]);
-
-const extOf = (name) => (name.includes('.') ? name.split('.').pop().toLowerCase() : '');
 
 const IMAGE_OPS = new Set([pdfjs.OPS.paintImageXObject, pdfjs.OPS.paintInlineImageXObject, pdfjs.OPS.paintImageMaskXObject]);
 const MAX_RENDERED_PAGES = 40;
@@ -39,7 +35,18 @@ async function renderPage(page) {
   const viewport = page.getViewport({ scale: Math.min(2, 1280 / base.width) });
   const canvas = Object.assign(document.createElement('canvas'), { width: Math.ceil(viewport.width), height: Math.ceil(viewport.height) });
   await page.render({ canvas, viewport }).promise;
-  return new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.75));
+  return new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.75)); // null if the canvas is too big
+}
+
+// JPEG of page n if it is a picture page, else null. Any failure also gives
+// null, so the page keeps its text version.
+async function renderIfPicture(doc, n, hasText) {
+  try {
+    const page = await doc.getPage(n);
+    return (await isPicturePage(page, hasText)) ? await renderPage(page) : null;
+  } catch {
+    return null;
+  }
 }
 
 async function pdfToMd(buf, fileId, images) {
@@ -54,199 +61,17 @@ async function pdfToMd(buf, fileId, images) {
   const out = [];
   let rendered = 0;
   for (const [i, { md, bodyChars }] of pagesToMd(contents).entries()) {
+    const blob = bodyChars < 80 && rendered < MAX_RENDERED_PAGES ? await renderIfPicture(doc, i + 1, Boolean(md)) : null;
     let pageMd = md;
-    if (bodyChars < 80 && rendered < MAX_RENDERED_PAGES) {
-      try {
-        const page = await doc.getPage(i + 1);
-        const blob = (await isPicturePage(page, Boolean(md))) && (await renderPage(page)); // toBlob gives null if the canvas is too big
-        if (blob) {
-          const name = `${fileId}-p${i + 1}.jpg`;
-          images.set(name, { blob });
-          rendered++;
-          pageMd = [md, `![](images/${name})`].filter(Boolean).join('\n\n'); // keep the (short) text too
-        }
-      } catch {
-        // keep the text version of this page
-      }
+    if (blob) {
+      const name = `${fileId}-p${i + 1}.jpg`;
+      images.set(name, { blob });
+      rendered++;
+      pageMd = [md, `![](images/${name})`].filter(Boolean).join('\n\n'); // keep the (short) text too
     }
     if (pageMd) out.push(`[p.${i + 1}]\n${pageMd}`);
   }
   await task.destroy();
-  return out.join('\n\n');
-}
-
-const xml = (s) => new DOMParser().parseFromString(s, 'application/xml');
-const textOf = (el, tag) => [...el.getElementsByTagName(tag)].map((t) => t.textContent).join('');
-// Text of one DrawingML paragraph; <a:br/> line breaks become spaces.
-const paraText = (p) =>
-  [...p.getElementsByTagName('*')]
-    .map((e) => (e.tagName === 'a:t' ? e.textContent : e.tagName === 'a:br' ? ' ' : ''))
-    .join('')
-    .replace(/\s+/g, ' ')
-    .trim();
-const paragraphs = (el) => [...el.getElementsByTagName('a:p')].map(paraText).filter(Boolean);
-
-// Body placeholders are bulleted unless turned off; plain text boxes only when they ask for it.
-function isBullet(sp, p) {
-  const pPr = p.getElementsByTagName('a:pPr')[0];
-  if (pPr?.getElementsByTagName('a:buNone').length) return false;
-  return Boolean(sp.getElementsByTagName('p:ph').length || pPr?.getElementsByTagName('a:buChar').length || pPr?.getElementsByTagName('a:buAutoNum').length);
-}
-
-// Resolve a relationship target ("slides/slide1.xml", "../media/x.png", "/ppt/...") against a folder.
-function resolve(dir, target) {
-  if (target.startsWith('/')) return target.slice(1);
-  const parts = dir.split('/');
-  for (const seg of target.split('/')) seg === '..' ? parts.pop() : parts.push(seg);
-  return parts.join('/');
-}
-
-async function rels(zip, partPath) {
-  const dir = partPath.slice(0, partPath.lastIndexOf('/'));
-  const f = zip.file(`${dir}/_rels/${partPath.split('/').pop()}.rels`);
-  if (!f) return [];
-  return [...xml(await f.async('string')).getElementsByTagName('Relationship')].map((r) => ({
-    id: r.getAttribute('Id'),
-    type: r.getAttribute('Type'),
-    path: r.getAttribute('TargetMode') === 'External' ? null : resolve(dir, r.getAttribute('Target')),
-  }));
-}
-
-// Pictures placed in an OOXML element (slide, paragraph) as [{ id, md }], id being
-// the relationship id. Images go into `images` as "<fileId>-<media name>";
-// too-small ones are stored as null and skipped.
-async function embeddedImages(zip, el, partRels, fileId, images) {
-  const out = [];
-  const ids = new Set([...el.getElementsByTagName('a:blip')].map((b) => b.getAttribute('r:embed')).filter(Boolean));
-  for (const id of ids) {
-    const path = partRels.find((r) => r.id === id)?.path;
-    if (!path || !IMAGE_EXTS.has(extOf(path))) continue;
-    const name = imageName(`${fileId}-${path.split('/').pop()}`);
-    if (!images.has(name)) {
-      const data = await zip.file(path)?.async('uint8array');
-      const type = `image/${extOf(path).replace('jpg', 'jpeg')}`;
-      images.set(name, data && data.length >= MIN_IMAGE_BYTES ? { blob: new Blob([data], { type }) } : null);
-    }
-    if (images.get(name)) out.push({ id, md: `![](images/${name})` });
-  }
-  return out;
-}
-
-const SKIP_PLACEHOLDERS = new Set(['sldNum', 'ftr', 'dt']); // slide number, footer, date
-
-// Top-left corner of a shape, for reading order.
-function position(sp) {
-  const off = sp.getElementsByTagName('a:off')[0];
-  return off ? [Number(off.getAttribute('y')), Number(off.getAttribute('x'))] : [0, 0];
-}
-
-async function pptxToMd(buf, fileId, images) {
-  const zip = await JSZip.loadAsync(buf);
-  const pres = xml(await zip.file('ppt/presentation.xml').async('string'));
-  const presRels = await rels(zip, 'ppt/presentation.xml');
-  const sldSz = pres.getElementsByTagName('p:sldSz')[0];
-  const slideArea = Number(sldSz?.getAttribute('cx') || 12192000) * Number(sldSz?.getAttribute('cy') || 6858000);
-  const slidePaths = [...pres.getElementsByTagName('p:sldId')].map(
-    (s) => presRels.find((r) => r.id === s.getAttribute('r:id')).path,
-  );
-
-  const slides = [];
-  for (const [i, path] of slidePaths.entries()) {
-    const slide = xml(await zip.file(path).async('string'));
-    if (slide.documentElement.getAttribute('show') === '0') continue; // hidden slide
-    let title = '';
-    const body = [];
-    // Shapes are stored in z-order; read them top-to-bottom, left-to-right instead.
-    const shapes = [...slide.getElementsByTagName('p:sp')].sort((a, b) => {
-      const [ay, ax] = position(a);
-      const [by, bx] = position(b);
-      return ay - by || ax - bx;
-    });
-    for (const sp of shapes) {
-      const type = sp.getElementsByTagName('p:ph')[0]?.getAttribute('type');
-      if (SKIP_PLACEHOLDERS.has(type)) continue;
-      if (!title && (type === 'title' || type === 'ctrTitle')) {
-        title = paragraphs(sp).join(' ');
-        continue;
-      }
-      for (const p of sp.getElementsByTagName('a:p')) {
-        const text = paraText(p).replace(/^(?:[•▪●]\s*|-\s+)/, ''); // typed bullet, not a minus sign
-        if (!text || /^\[\d+\]$/.test(text)) continue; // empty or a lone citation marker
-        const level = Number(p.getElementsByTagName('a:pPr')[0]?.getAttribute('lvl') || 0);
-        const md = isBullet(sp, p) ? `${'  '.repeat(Math.min(level, 3))}- ${text}` : text;
-        body.push({ md, template: !sp.getElementsByTagName('p:ph').length }); // free text box, may be a typed-in footer
-      }
-    }
-    for (const tbl of slide.getElementsByTagName('a:tbl')) {
-      const rows = [...tbl.getElementsByTagName('a:tr')].map(
-        (tr) => `| ${[...tr.getElementsByTagName('a:tc')].map((tc) => paragraphs(tc).join(' ')).join(' | ')} |`,
-      );
-      if (rows.length) body.push(...[rows[0], rows[0].replace(/[^|]+/g, ' --- '), ...rows.slice(1)].map((md) => ({ md, template: false })));
-    }
-    const slideRels = await rels(zip, path);
-    // Small pictures (< 10% of the slide) and background fills may be template logos.
-    const small = new Set();
-    for (const blip of slide.getElementsByTagName('a:blip')) {
-      let pic = blip;
-      while (pic && pic.tagName !== 'p:pic') pic = pic.parentNode;
-      const ext = pic?.getElementsByTagName('a:xfrm')[0]?.getElementsByTagName('a:ext')[0];
-      const area = ext ? (Number(ext.getAttribute('cx')) * Number(ext.getAttribute('cy'))) / slideArea : 0;
-      if (area < 0.1) small.add(blip.getAttribute('r:embed'));
-    }
-    const pictures = (await embeddedImages(zip, slide, slideRels, fileId, images)).map((img) => ({ md: img.md, template: small.has(img.id) }));
-
-    const notesPath = slideRels.find((r) => r.type.endsWith('/notesSlide'))?.path;
-    let notes = '';
-    if (notesPath) {
-      const notesDoc = xml(await zip.file(notesPath).async('string'));
-      const bodySp = [...notesDoc.getElementsByTagName('p:sp')].find(
-        (sp) => sp.getElementsByTagName('p:ph')[0]?.getAttribute('type') === 'body',
-      );
-      notes = bodySp ? paragraphs(bodySp).join(' ') : '';
-    }
-    slides.push({ number: i + 1, title, body, pictures, notes: /^\d*$/.test(notes) ? '' : notes });
-  }
-
-  // Template noise, only among template candidates (free text boxes, small
-  // pictures): text on most slides (typed-in footers), pictures on 3+ slides
-  // (logos). Placeholder text, tables and large pictures are always kept.
-  const count = new Map();
-  for (const s of slides) for (const md of new Set([...s.body, ...s.pictures].map((l) => l.md))) count.set(md, (count.get(md) || 0) + 1);
-  const isNoise = (l) =>
-    l.template && (l.md.startsWith('![') ? count.get(l.md) >= 3 : slides.length >= 4 && count.get(l.md) > slides.length / 2);
-
-  return slides
-    .map((s) => {
-      const lines = [...s.body, ...s.pictures].filter((l) => !isNoise(l)).map((l) => l.md);
-      if (!s.title && !lines.length && !s.notes) return '';
-      return [`#### Slide ${s.number}${s.title ? `: ${s.title}` : ''}`, ...lines, s.notes && `> Notes: ${s.notes}`].filter(Boolean).join('\n');
-    })
-    .filter(Boolean)
-    .join('\n\n');
-}
-
-async function docxToMd(buf, fileId, images) {
-  const zip = await JSZip.loadAsync(buf);
-  const body = xml(await zip.file('word/document.xml').async('string')).getElementsByTagName('w:body')[0];
-  const docRels = await rels(zip, 'word/document.xml');
-  const out = [];
-  for (const el of body.children) {
-    if (el.tagName === 'w:p') {
-      out.push(...(await embeddedImages(zip, el, docRels, fileId, images)).map((img) => img.md));
-      const text = textOf(el, 'w:t').trim();
-      if (!text) continue;
-      const style = el.getElementsByTagName('w:pStyle')[0]?.getAttribute('w:val') || '';
-      const level = /^heading\s?(\d)/i.exec(style)?.[1] ?? (/^title$/i.test(style) ? '1' : null);
-      if (level) out.push(`${'#'.repeat(Math.min(6, Number(level) + 3))} ${text}`);
-      else if (el.getElementsByTagName('w:numPr').length) out.push(`- ${text}`);
-      else out.push(text);
-    } else if (el.tagName === 'w:tbl') {
-      const rows = [...el.getElementsByTagName('w:tr')].map(
-        (tr) => `| ${[...tr.getElementsByTagName('w:tc')].map((tc) => textOf(tc, 'w:t').trim()).join(' | ')} |`,
-      );
-      if (rows.length) out.push([rows[0], rows[0].replace(/[^|]+/g, ' --- '), ...rows.slice(1)].join('\n'));
-    }
-  }
   return out.join('\n\n');
 }
 
@@ -263,28 +88,33 @@ function notebookToMd(text) {
     .join('\n\n');
 }
 
+// By extension. Binary converters get an ArrayBuffer and may add images;
+// the others get the file's text.
+const CONVERTERS = {
+  pdf: { binary: true, convert: pdfToMd },
+  pptx: { binary: true, convert: pptxToMd },
+  docx: { binary: true, convert: docxToMd },
+  html: { convert: (text) => htmlToMd(text) },
+  htm: { convert: (text) => htmlToMd(text) },
+  ipynb: { convert: notebookToMd },
+  md: { convert: (text) => text.trim() },
+  txt: { convert: (text) => text.trim() },
+};
+const converterFor = (ext) =>
+  CONVERTERS[ext] ?? (CODE_EXTS.has(ext) ? { convert: (text) => `\`\`\`${ext}\n${text.trim()}\n\`\`\`` } : null);
+
 // Returns { md, images } for one file, or throws Error(reason) if it can't be converted.
 async function fileToMd(file) {
   const ext = extOf(file.name);
-  const known = ['pdf', 'pptx', 'docx', 'html', 'htm', 'ipynb'].includes(ext) || CODE_EXTS.has(ext);
-  if (!known) throw new Error(ext ? `.${ext} not supported` : 'unknown type');
+  const converter = converterFor(ext);
+  if (!converter) throw new Error(ext ? `.${ext} not supported` : 'unknown type');
   if (file.size > MAX_BYTES) throw new Error('too large');
 
   const res = await fetch(file.url);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const images = new Map();
-  let md;
-  if (ext === 'pdf') md = await pdfToMd(await res.arrayBuffer(), file.id, images);
-  else if (ext === 'pptx') md = await pptxToMd(await res.arrayBuffer(), file.id, images);
-  else if (ext === 'docx') md = await docxToMd(await res.arrayBuffer(), file.id, images);
-  else {
-    const text = await res.text();
-    if (ext === 'html' || ext === 'htm') md = htmlToMd(text);
-    else if (ext === 'ipynb') md = notebookToMd(text);
-    else if (ext === 'md' || ext === 'txt') md = text.trim();
-    else md = `\`\`\`${ext}\n${text.trim()}\n\`\`\``;
-  }
-  return { md, images };
+  const input = converter.binary ? await res.arrayBuffer() : await res.text();
+  return { md: await converter.convert(input, file.id, images), images };
 }
 
 const cache = new Map(); // file id → Promise<{ md, images }>

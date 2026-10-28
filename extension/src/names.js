@@ -1,4 +1,9 @@
-// File-name helpers (pure, no DOM).
+// File-name and file-type helpers (pure, no DOM).
+
+export const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp']);
+export const MIN_IMAGE_BYTES = 8 * 1024; // smaller embedded images are icons, bullets, logos
+
+export const extOf = (name) => (name.includes('.') ? name.split('.').pop().toLowerCase() : '');
 
 // Image files are referenced as ![](images/<name>); a name made only of
 // [A-Za-z0-9._-] can't break the link or the reference lookup. When cleaning
