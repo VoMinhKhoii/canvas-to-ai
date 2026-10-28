@@ -6,29 +6,49 @@
 //
 // Pure functions (no DOM) so it can be tested in Node.
 
-const BULLET_GLYPHS = new Set([...'•●▪■➢►▶∙◦○‣⁃–-*§Øüq', 'o', '', '', '', '', '', '', '']);
+// Glyphs that are always bullets (incl. Symbol/Wingdings private-use code points).
+const BULLET_GLYPHS = new Set([...'•●▪■➢►▶∙◦○‣⁃', '\uf0a7', '\uf0b7', '\uf0d8', '\uf076', '\uf0fc', '\uf0e0', '\uf06e']);
+
+// A one-character first fragment is a bullet only with evidence. Sub-bullet
+// "o": PowerPoint draws it in Courier before normal text, Word puts a tab-sized
+// gap after it. A dash or asterisk needs a gap before the text. Anything else
+// (an italic "q" in "q = 10") stays text.
+function isGlyphBullet(glyph, next) {
+  const g = glyph.str.trim();
+  if (BULLET_GLYPHS.has(g)) return true;
+  const gap = next.x - (glyph.x + glyph.w);
+  if (g === 'o') return (glyph.mono && !next.mono) || gap >= glyph.size * 0.8;
+  if (g === '-' || g === '–' || g === '*') return gap > glyph.size * 0.2;
+  return false;
+}
+
 // Code typeset in a normal font: braces, statements, declarations.
 const CODE_START = /^(import|package|public|private|protected|static|return|const|let|var|function|class|interface|def|@\w+|if\s*\(|for\s*\(|while\s*\(|}|\/\/)/;
 const looksLikeCode = (t) => /[{}]$/.test(t) || (/;$/.test(t) && /[=(.]/.test(t)) || (CODE_START.test(t) && /[;{(=]/.test(t));
 
 const BULLET_PREFIX = /^[•●▪■➢►▶∙◦○‣⁃]\s*/;
 
-// pages: [{ items, styles }] from page.getTextContent().
-// Returns per page { md, headings, bodyChars }: headings is the Markdown of
-// just the page's headings, bodyChars counts non-heading text (low = the page
-// is mostly a picture).
+// pages: [{ items, styles, height }]: page.getTextContent() plus the page height.
+// Returns per page { md, bodyChars }: bodyChars counts non-heading text (low =
+// the page is mostly a picture).
 export function pagesToMd(pages) {
   const pageLines = pages.map(({ items, styles }) => toLines(items, styles));
   const all = pageLines.flat();
   const body = bodySize(all);
   const headingSizes = [...new Set(all.filter((l) => isHeadingLine(l, body)).map((l) => round(l.size)))].sort((a, b) => b - a);
-  const repeated = repeatedLines(pageLines);
+  const margins = pageLines.map((lines, i) => lines.filter((l) => inMargin(l, pages[i].height, body)));
+  const repeated = repeatedLines(margins);
 
-  return pageLines.map((lines) => {
-    const kept = lines.filter((l) => !repeated.has(key(l.text)) && !/^\d{1,3}$/.test(l.text));
+  return pageLines.map((lines, i) => {
+    const margin = new Set(margins[i]);
+    const kept = lines.filter((l) => !(margin.has(l) && (repeated.has(key(l.text)) || /^\d{1,3}$/.test(l.text))));
     return render(kept, body, headingSizes);
   });
 }
+
+// Running headers, footers and page numbers live in the top/bottom 8% of the
+// page at body size or smaller; only those lines may be dropped.
+const inMargin = (l, height, body) => height > 0 && l.size <= body && (l.y > height * 0.92 || l.y < height * 0.08);
 
 const round = (n) => Math.round(n * 2) / 2;
 const key = (text) => text.replace(/\d+/g, '#');
@@ -43,14 +63,24 @@ function toLines(items, styles) {
     .filter((f) => f.size > 0);
   frags.sort((a, b) => b.y - a.y || a.x - b.x);
 
+  // A fragment joins the current line by baseline distance to the fragment that
+  // started the line (never a later one, so a big glyph can't bridge two rows):
+  // similar sizes within half a line; a much smaller fragment
+  // only as a superscript/subscript (baseline within -0.35..+0.6 em of the big
+  // one). Font boxes overstate glyph height, so extents are not compared.
+  const sameLine = (a, b) => {
+    const [big, small] = a.size >= b.size ? [a, b] : [b, a];
+    const d = small.y - big.y;
+    if (small.size >= big.size * 0.85) return Math.abs(d) < small.size * 0.5;
+    return d > -big.size * 0.35 && d < big.size * 0.6;
+  };
   const lines = [];
   for (const f of frags) {
     const line = lines.at(-1);
-    if (line && Math.abs(line.y - f.y) < Math.min(line.size, f.size) * 0.5) {
+    if (line && sameLine(line.main, f)) {
       line.frags.push(f);
-      line.size = Math.max(line.size, f.str.trim() ? f.size : 0);
     } else {
-      lines.push({ y: f.y, size: f.str.trim() ? f.size : 0, frags: [f] });
+      lines.push({ main: f, frags: [f] });
     }
   }
 
@@ -59,9 +89,8 @@ function toLines(items, styles) {
       line.frags.sort((a, b) => a.x - b.x);
       const visible = line.frags.filter((f) => f.str.trim());
       if (!visible.length) return null;
-      // Bullet glyph drawn as its own fragment (e.g. "•" or Wingdings "o"/"§").
-      const first = visible[0].str.trim();
-      const glyphBullet = visible.length > 1 && first.length === 1 && BULLET_GLYPHS.has(first);
+      // Bullet glyph drawn as its own fragment (e.g. "•" or PowerPoint's Courier "o").
+      const glyphBullet = visible.length > 1 && visible[0].str.trim().length === 1 && isGlyphBullet(visible[0], visible[1]);
       const textFrags = glyphBullet ? visible.slice(1) : visible;
 
       // Join fragments; a wide gap (> 1.5 em) starts a new table cell.
@@ -83,12 +112,13 @@ function toLines(items, styles) {
       }
       const monoChars = textFrags.filter((f) => f.mono).reduce((n, f) => n + f.str.trim().length, 0);
       const chars = textFrags.reduce((n, f) => n + f.str.trim().length, 0);
+      const main = textFrags.reduce((a, b) => (b.size > a.size ? b : a)); // baseline: the biggest text
       return {
         text,
-        y: line.y,
+        y: main.y,
         x: visible[0].x,
         textX: textFrags[0].x,
-        size: Math.max(...textFrags.map((f) => f.size)), // ignore the bullet glyph's size
+        size: main.size, // ignore the bullet glyph's size
         bullet,
         mono: !bullet && (monoChars >= chars * 0.8 || looksLikeCode(text)),
         cells: cellTexts.length > 1 ? cellTexts : null,
@@ -97,10 +127,11 @@ function toLines(items, styles) {
     .filter((l) => l && l.text);
 }
 
-// Most common font size, weighted by characters.
+// Most common font size of prose (code is often smaller), weighted by characters.
 function bodySize(lines) {
   const weight = new Map();
-  for (const l of lines) weight.set(round(l.size), (weight.get(round(l.size)) || 0) + l.text.length);
+  const prose = lines.filter((l) => !l.mono);
+  for (const l of prose.length ? prose : lines) weight.set(round(l.size), (weight.get(round(l.size)) || 0) + l.text.length);
   return [...weight].sort((a, b) => b[1] - a[1])[0]?.[0] || 12;
 }
 
@@ -108,7 +139,7 @@ function bodySize(lines) {
 const isHeadingLine = (l, body) =>
   !l.bullet && !l.mono && l.size >= body * 1.1 && l.text.length <= 120 && !(l.text.length > 50 && /[:.]$/.test(l.text));
 
-// Lines (digits ignored) that appear on more than half the pages: headers, footers.
+// Margin lines (digits ignored, so "Page 3 of 9" matches) on more than half the pages.
 function repeatedLines(pageLines) {
   const counts = new Map();
   for (const lines of pageLines) for (const k of new Set(lines.map((l) => key(l.text)))) counts.set(k, (counts.get(k) || 0) + 1);
@@ -164,7 +195,6 @@ function render(lines, body, headingSizes) {
   }
 
   let out = '';
-  const headings = blocks.filter((b) => b.kind === 'h').map((b) => `${'#'.repeat(4 + b.depth)} ${b.text}`).join('\n\n');
   const bodyChars = blocks
     .filter((b) => b.kind !== 'h')
     .reduce((n, b) => n + (b.text ?? (b.lines ? b.lines.map((l) => l.text) : b.rows.flat()).join('')).length, 0);
@@ -184,5 +214,5 @@ function render(lines, body, headingSizes) {
       out += `${sep}\`\`\`\n${code.join('\n')}\n\`\`\``;
     }
   }
-  return { md: out, headings, bodyChars };
+  return { md: out, bodyChars };
 }

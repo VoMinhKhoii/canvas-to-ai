@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "node build.mjs"
+    "build": "node build.mjs",
+    "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
     "jszip": "^3.10.2",

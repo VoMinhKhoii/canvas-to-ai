@@ -24,6 +24,8 @@ const tidy = (s) => s.replace(/\u00a0/g, ' ').replace(/[ \t]+\n/g, '\n').replace
 // resolveImage(imgNode) returns Markdown for an image, or '' to drop it.
 function htmlToMd(html, resolveImage = () => '') {
   const doc = new DOMParser().parseFromString(html, 'text/html');
+  // Canvas "Previous / Next" module footer, sometimes pasted into page bodies.
+  for (const el of doc.body.querySelectorAll('a[data-api-returntype="Module"], [class*="module-sequence-footer"]')) el.remove();
   // Inline elements laid out apart by CSS ("<b>Customer Portal</b>Architecture lab")
   // would run together as text; put a space between them.
   for (const el of doc.body.querySelectorAll('span, button, label, a, b, strong, em, small')) {
@@ -37,7 +39,7 @@ function htmlToMd(html, resolveImage = () => '') {
   td.addRule('shiftHeadings', {
     filter: ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'],
     replacement: (content, node) => {
-      const text = content.replace(/\*\*|__/g, '').replace(/\s+/g, ' ').trim();
+      const text = node.textContent.replace(/\s+/g, ' ').trim(); // plain text: no **bold** markers in headings
       return text ? `\n\n${'#'.repeat(Math.min(6, Number(node.nodeName[1]) + 3))} ${text}\n\n` : '';
     },
   });
@@ -52,8 +54,7 @@ function htmlToMd(html, resolveImage = () => '') {
       return prefix + content + (node.nextSibling && !/\n$/.test(content) ? '\n' : '');
     },
   });
-  const md = td.turndown(doc.body).replace(/^\s*(Previous\s*Next|Previous|Next)\s*$/gm, ''); // Canvas page nav
-  return tidy(md);
+  return tidy(td.turndown(doc.body));
 }
 
 const IMAGE_OPS = new Set([pdfjs.OPS.paintImageXObject, pdfjs.OPS.paintInlineImageXObject, pdfjs.OPS.paintImageMaskXObject]);
@@ -61,15 +62,15 @@ const MAX_RENDERED_PAGES = 40;
 
 // A page with little text but real drawings (diagram, screenshot, scan) is worth
 // sending as a picture. Slide templates draw ~2 images on every page, so plain
-// title slides stay text.
-async function isPicturePage(page) {
+// title slides stay text; a page with no text at all but any image is a scan.
+async function isPicturePage(page, hasText) {
   let images = 0;
   let paths = 0;
   for (const fn of (await page.getOperatorList()).fnArray) {
     if (IMAGE_OPS.has(fn)) images++;
     else if (fn === pdfjs.OPS.constructPath) paths++;
   }
-  return images >= 3 || paths >= 40;
+  return images >= 3 || paths >= 40 || (images > 0 && !hasText);
 }
 
 async function renderPage(page) {
@@ -84,21 +85,24 @@ async function pdfToMd(buf, fileId, images) {
   const task = pdfjs.getDocument({ data: new Uint8Array(buf), isEvalSupported: false });
   const doc = await task.promise;
   const contents = [];
-  for (let i = 1; i <= doc.numPages; i++) contents.push(await (await doc.getPage(i)).getTextContent());
+  for (let i = 1; i <= doc.numPages; i++) {
+    const page = await doc.getPage(i);
+    contents.push({ ...(await page.getTextContent()), height: page.view[3] - page.view[1] });
+  }
 
   const out = [];
   let rendered = 0;
-  for (const [i, { md, headings, bodyChars }] of pagesToMd(contents).entries()) {
+  for (const [i, { md, bodyChars }] of pagesToMd(contents).entries()) {
     let pageMd = md;
     if (bodyChars < 80 && rendered < MAX_RENDERED_PAGES) {
       try {
         const page = await doc.getPage(i + 1);
-        const blob = (await isPicturePage(page)) && (await renderPage(page)); // toBlob gives null if the canvas is too big
+        const blob = (await isPicturePage(page, Boolean(md))) && (await renderPage(page)); // toBlob gives null if the canvas is too big
         if (blob) {
           const name = `${fileId}-p${i + 1}.jpg`;
           images.set(name, { blob });
           rendered++;
-          pageMd = [headings, `![](images/${name})`].filter(Boolean).join('\n\n');
+          pageMd = [md, `![](images/${name})`].filter(Boolean).join('\n\n'); // keep the (short) text too
         }
       } catch {
         // keep the text version of this page
@@ -147,8 +151,9 @@ async function rels(zip, partPath) {
   }));
 }
 
-// Markdown image lines for pictures placed in an OOXML element (slide, paragraph).
-// Images go into `images` as "<fileId>-<media name>"; too-small ones are stored as null.
+// Pictures placed in an OOXML element (slide, paragraph) as [{ id, md }], id being
+// the relationship id. Images go into `images` as "<fileId>-<media name>";
+// too-small ones are stored as null and skipped.
 async function embeddedImages(zip, el, partRels, fileId, images) {
   const out = [];
   const ids = new Set([...el.getElementsByTagName('a:blip')].map((b) => b.getAttribute('r:embed')).filter(Boolean));
@@ -161,7 +166,7 @@ async function embeddedImages(zip, el, partRels, fileId, images) {
       const type = `image/${extOf(path).replace('jpg', 'jpeg')}`;
       images.set(name, data && data.length >= MIN_IMAGE_BYTES ? { blob: new Blob([data], { type }) } : null);
     }
-    if (images.get(name)) out.push(`![](images/${name})`);
+    if (images.get(name)) out.push({ id, md: `![](images/${name})` });
   }
   return out;
 }
@@ -178,6 +183,8 @@ async function pptxToMd(buf, fileId, images) {
   const zip = await JSZip.loadAsync(buf);
   const pres = xml(await zip.file('ppt/presentation.xml').async('string'));
   const presRels = await rels(zip, 'ppt/presentation.xml');
+  const sldSz = pres.getElementsByTagName('p:sldSz')[0];
+  const slideArea = Number(sldSz?.getAttribute('cx') || 12192000) * Number(sldSz?.getAttribute('cy') || 6858000);
   const slidePaths = [...pres.getElementsByTagName('p:sldId')].map(
     (s) => presRels.find((r) => r.id === s.getAttribute('r:id')).path,
   );
@@ -202,20 +209,30 @@ async function pptxToMd(buf, fileId, images) {
         continue;
       }
       for (const p of sp.getElementsByTagName('a:p')) {
-        const text = paraText(p).replace(/^[-•▪●]\s*/, '');
+        const text = paraText(p).replace(/^(?:[•▪●]\s*|-\s+)/, ''); // typed bullet, not a minus sign
         if (!text || /^\[\d+\]$/.test(text)) continue; // empty or a lone citation marker
         const level = Number(p.getElementsByTagName('a:pPr')[0]?.getAttribute('lvl') || 0);
-        body.push(isBullet(sp, p) ? `${'  '.repeat(Math.min(level, 3))}- ${text}` : text);
+        const md = isBullet(sp, p) ? `${'  '.repeat(Math.min(level, 3))}- ${text}` : text;
+        body.push({ md, template: !sp.getElementsByTagName('p:ph').length }); // free text box, may be a typed-in footer
       }
     }
     for (const tbl of slide.getElementsByTagName('a:tbl')) {
       const rows = [...tbl.getElementsByTagName('a:tr')].map(
         (tr) => `| ${[...tr.getElementsByTagName('a:tc')].map((tc) => paragraphs(tc).join(' ')).join(' | ')} |`,
       );
-      if (rows.length) body.push(rows[0], rows[0].replace(/[^|]+/g, ' --- '), ...rows.slice(1));
+      if (rows.length) body.push(...[rows[0], rows[0].replace(/[^|]+/g, ' --- '), ...rows.slice(1)].map((md) => ({ md, template: false })));
     }
     const slideRels = await rels(zip, path);
-    const pictures = await embeddedImages(zip, slide, slideRels, fileId, images);
+    // Small pictures (< 10% of the slide) and background fills may be template logos.
+    const small = new Set();
+    for (const blip of slide.getElementsByTagName('a:blip')) {
+      let pic = blip;
+      while (pic && pic.tagName !== 'p:pic') pic = pic.parentNode;
+      const ext = pic?.getElementsByTagName('a:xfrm')[0]?.getElementsByTagName('a:ext')[0];
+      const area = ext ? (Number(ext.getAttribute('cx')) * Number(ext.getAttribute('cy'))) / slideArea : 0;
+      if (area < 0.1) small.add(blip.getAttribute('r:embed'));
+    }
+    const pictures = (await embeddedImages(zip, slide, slideRels, fileId, images)).map((img) => ({ md: img.md, template: small.has(img.id) }));
 
     const notesPath = slideRels.find((r) => r.type.endsWith('/notesSlide'))?.path;
     let notes = '';
@@ -229,15 +246,17 @@ async function pptxToMd(buf, fileId, images) {
     slides.push({ number: i + 1, title, body, pictures, notes: /^\d*$/.test(notes) ? '' : notes });
   }
 
-  // Template noise: text on most slides (typed-in footers) and pictures on 3+
-  // slides (logos, banners).
+  // Template noise, only among template candidates (free text boxes, small
+  // pictures): text on most slides (typed-in footers), pictures on 3+ slides
+  // (logos). Placeholder text, tables and large pictures are always kept.
   const count = new Map();
-  for (const s of slides) for (const l of new Set([...s.body, ...s.pictures])) count.set(l, (count.get(l) || 0) + 1);
-  const isNoise = (l) => (l.startsWith('![') ? count.get(l) >= 3 : slides.length >= 4 && count.get(l) > slides.length / 2);
+  for (const s of slides) for (const md of new Set([...s.body, ...s.pictures].map((l) => l.md))) count.set(md, (count.get(md) || 0) + 1);
+  const isNoise = (l) =>
+    l.template && (l.md.startsWith('![') ? count.get(l.md) >= 3 : slides.length >= 4 && count.get(l.md) > slides.length / 2);
 
   return slides
     .map((s) => {
-      const lines = [...s.body, ...s.pictures].filter((l) => !isNoise(l));
+      const lines = [...s.body, ...s.pictures].filter((l) => !isNoise(l)).map((l) => l.md);
       if (!s.title && !lines.length && !s.notes) return '';
       return [`#### Slide ${s.number}${s.title ? `: ${s.title}` : ''}`, ...lines, s.notes && `> Notes: ${s.notes}`].filter(Boolean).join('\n');
     })
@@ -252,7 +271,7 @@ async function docxToMd(buf, fileId, images) {
   const out = [];
   for (const el of body.children) {
     if (el.tagName === 'w:p') {
-      out.push(...(await embeddedImages(zip, el, docRels, fileId, images)));
+      out.push(...(await embeddedImages(zip, el, docRels, fileId, images)).map((img) => img.md));
       const text = textOf(el, 'w:t').trim();
       if (!text) continue;
       const style = el.getElementsByTagName('w:pStyle')[0]?.getAttribute('w:val') || '';
