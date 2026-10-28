@@ -4,6 +4,7 @@ import * as pdfjs from 'pdfjs-dist';
 import JSZip from 'jszip';
 import { pagesToMd } from './pdf-layout.js';
 import { htmlToMd } from './html-to-md.js';
+import { imageName } from './names.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('pdf.worker.min.mjs');
 
@@ -16,10 +17,6 @@ const CODE_EXTS = new Set([
 ]);
 
 const extOf = (name) => (name.includes('.') ? name.split('.').pop().toLowerCase() : '');
-// Image files are referenced as ![](images/<name>); a name made only of these
-// characters can't break the link or the reference lookup in buildMarkdown.
-const imageName = (s) => s.replace(/[^\w.-]+/g, '_');
-export const safe = (s) => s.replace(/[\\/:*?"<>|~\x00-\x1f]+/g, '_').replace(/^[\s.]+|[\s.]+$/g, '').slice(0, 120) || 'untitled';
 
 const IMAGE_OPS = new Set([pdfjs.OPS.paintImageXObject, pdfjs.OPS.paintInlineImageXObject, pdfjs.OPS.paintImageMaskXObject]);
 const MAX_RENDERED_PAGES = 40;
