@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Canvas to AI",
+  "version": "0.1.0",
+  "description": "Pick files from a Canvas course by week, download them, or copy everything as one Markdown file for AI.",
+  "permissions": ["sidePanel", "scripting", "downloads", "clipboardWrite"],
+  "host_permissions": [
+    "https://*.instructure.com/*",
+    "https://*.canvas-user-content.com/*",
+    "https://*.inscloudgate.net/*"
+  ],
+  "background": { "service_worker": "background.js" },
+  "side_panel": { "default_path": "sidepanel.html" },
+  "action": { "default_title": "Canvas to AI" }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "canvas-to-ai",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "jszip": "^3.10.2",
+    "pdfjs-dist": "^6.4.299",
+    "turndown": "^7.2.4"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}

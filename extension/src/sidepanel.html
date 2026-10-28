@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Canvas to AI</title>
+    <link rel="stylesheet" href="sidepanel.css" />
+  </head>
+  <body>
+    <header>
+      <div class="title-row">
+        <h1 id="course">Canvas to AI</h1>
+        <button id="rescan" class="ghost" title="Scan the Canvas course in the current tab">Rescan</button>
+      </div>
+      <div class="toolbar">
+        <button id="all" class="ghost">Select all</button>
+        <button id="none" class="ghost">Clear</button>
+        <span id="summary"></span>
+      </div>
+    </header>
+
+    <main id="list">
+      <p class="empty">Open a Canvas course, then click Rescan.</p>
+    </main>
+
+    <footer>
+      <div id="status" role="status"></div>
+      <div class="actions">
+        <button id="download">Download</button>
+        <button id="copy" class="primary">Copy as Markdown</button>
+        <button id="save" class="ghost" title="Save course.md + images/ to Downloads/Canvas">Save</button>
+      </div>
+    </footer>
+
+    <script type="module" src="sidepanel.js"></script>
+  </body>
+</html>
