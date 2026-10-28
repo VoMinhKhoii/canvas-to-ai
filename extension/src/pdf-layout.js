@@ -87,15 +87,25 @@ function sameLine(a, b) {
 }
 
 // The text a fragment is a superscript/subscript of, or null. Needs all of:
-// short (≤ 3 characters), smaller, raised or lowered within -0.35..+0.6 em,
-// and starting within 1 em after the start of that text (E = mc², x₁).
+// short (≤ 3 characters); smaller; raised or lowered within -0.35..+0.6 em;
+// touching an edge of that text, just after its end (E = mc², x₁) or just
+// before its start (¹⁴C); and no similar-size text on its own baseline within
+// 2 em (ordinary text on a row below a big heading has row neighbours).
 function scriptBase(f, frags) {
   if (f.str.trim().length > 3) return null;
+  const similar = (h) => h.size >= f.size * 0.85 && h.size <= f.size / 0.85;
+  const hasRowPeer = frags.some(
+    (h) => h !== f && h.str.trim() && similar(h) && Math.abs(h.y - f.y) < f.size * 0.5 && (h.x > f.x ? h.x - (f.x + f.w) : f.x - (h.x + h.w)) < f.size * 2,
+  );
+  if (hasRowPeer) return null;
   return (
     frags.find((g) => {
       if (g === f || !g.str.trim() || f.size >= g.size * 0.85) return false;
       const d = f.y - g.y;
-      return d > -g.size * 0.35 && d < g.size * 0.6 && f.x >= g.x && f.x <= g.x + g.w + g.size;
+      if (!(d > -g.size * 0.35 && d < g.size * 0.6)) return false;
+      const afterEnd = Math.abs(f.x - (g.x + g.w)) <= g.size * 0.5;
+      const beforeStart = Math.abs(g.x - (f.x + f.w)) <= g.size * 0.5;
+      return afterEnd || beforeStart;
     }) ?? null
   );
 }

@@ -134,3 +134,18 @@ test('a short upper label next to a distant badge does not bridge rows', () => {
   ], 540));
   assert.ok(!/Controller.*CPU|CPU.*Controller/.test(out), out);
 });
+
+test('ordinary row text under a big heading is not taken as a script', () => {
+  const [out] = md(page([
+    t('Heading', 72, 700, { size: 36 }),
+    t('This row says', 72, 690), t('CPU', 170, 690),
+    t('Body paragraph text long enough to set the body font size to twelve.', 72, 600),
+  ]));
+  assert.ok(!out.includes('HeadingCPU') && !out.includes('Heading CPU'), out);
+  assert.match(out, /This row says( \| | )CPU/); // same row (the 20pt gap reads as a column)
+});
+
+test('left-hand superscript stays with its expression', () => {
+  const [out] = md(page([t('14', 72, 706, { size: 8, width: 8 }), t('C', 82, 700), t('is radioactive', 92, 700)]));
+  assert.equal(out, '14 C is radioactive');
+});
