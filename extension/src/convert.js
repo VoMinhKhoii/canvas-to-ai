@@ -93,9 +93,10 @@ async function pdfToMd(buf, fileId, images) {
     if (bodyChars < 80 && rendered < MAX_RENDERED_PAGES) {
       try {
         const page = await doc.getPage(i + 1);
-        if (await isPicturePage(page)) {
+        const blob = (await isPicturePage(page)) && (await renderPage(page)); // toBlob gives null if the canvas is too big
+        if (blob) {
           const name = `${fileId}-p${i + 1}.jpg`;
-          images.set(name, { blob: await renderPage(page) });
+          images.set(name, { blob });
           rendered++;
           pageMd = [headings, `![](images/${name})`].filter(Boolean).join('\n\n');
         }
