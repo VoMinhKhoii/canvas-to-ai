@@ -1,19 +1,27 @@
 // PowerPoint (.pptx) and Word (.docx) → Markdown. Both are zips of XML parts
-// linked by relationship files; pictures are saved into `images`.
+// linked by relationship files. Each returns { md, assets }: assets holds
+// exactly the pictures the Markdown refers to.
 import JSZip from 'jszip';
-import { contentHeading, mdTable } from './md.js';
-import { IMAGE_EXTS, MIN_IMAGE_BYTES, extOf, imageName } from './names.js';
+import { contentHeading, mdTable } from '../md.js';
+import { IMAGE_EXTS, extOf, imageName, imageRef } from '../names.js';
+import { xml, picture } from './zip.js';
 
-const xml = (s) => new DOMParser().parseFromString(s, 'application/xml');
 const readXml = async (zip, path) => xml(await zip.file(path).async('string'));
 const textOf = (el, tag) => [...el.getElementsByTagName(tag)].map((t) => t.textContent).join('');
 // Text of one DrawingML paragraph; <a:br/> line breaks become spaces.
-const paraText = (p) =>
-  [...p.getElementsByTagName('*')]
-    .map((e) => (e.tagName === 'a:t' ? e.textContent : e.tagName === 'a:br' ? ' ' : ''))
-    .join('')
-    .replace(/\s+/g, ' ')
-    .trim();
+function paraText(p) {
+  let out = '';
+  const walk = (node) => {
+    for (const child of node.childNodes) {
+      if (child.nodeType !== 1) continue;
+      if (child.tagName === 'a:t') out += child.textContent;
+      else if (child.tagName === 'a:br') out += ' ';
+      else walk(child);
+    }
+  };
+  walk(p);
+  return out.replace(/\s+/g, ' ').trim();
+}
 const paragraphs = (el) => [...el.getElementsByTagName('a:p')].map(paraText).filter(Boolean);
 const placeholderType = (sp) => sp.getElementsByTagName('p:ph')[0]?.getAttribute('type');
 const isPlaceholder = (sp) => sp.getElementsByTagName('p:ph').length > 0;
@@ -37,22 +45,20 @@ async function rels(zip, partPath) {
   }));
 }
 
-// Pictures placed in an OOXML element (slide, paragraph) as [{ id, md }], id being
-// the relationship id. Images go into `images` as "<fileId>-<media name>";
-// too-small ones are stored as null and skipped.
-async function embeddedImages(zip, el, partRels, fileId, images) {
+// Pictures placed in an OOXML element (slide, paragraph) as
+// [{ id, name, source, md }], id being the relationship id and name
+// "<fileId>-<media name>". Too-small media are skipped. `media` caches what
+// was read from the zip (name → source or null), so a picture used on many
+// slides is read once.
+async function embeddedImages(zip, el, partRels, fileId, media) {
   const out = [];
   const ids = new Set([...el.getElementsByTagName('a:blip')].map((b) => b.getAttribute('r:embed')).filter(Boolean));
   for (const id of ids) {
     const path = partRels.find((r) => r.id === id)?.path;
     if (!path || !IMAGE_EXTS.has(extOf(path))) continue;
     const name = imageName(`${fileId}-${path.split('/').pop()}`);
-    if (!images.has(name)) {
-      const data = await zip.file(path)?.async('uint8array');
-      const type = `image/${extOf(path).replace('jpg', 'jpeg')}`;
-      images.set(name, data && data.length >= MIN_IMAGE_BYTES ? { blob: new Blob([data], { type }) } : null);
-    }
-    if (images.get(name)) out.push({ id, md: `![](images/${name})` });
+    if (!media.has(name)) media.set(name, await picture(zip, path));
+    if (media.get(name)) out.push({ id, name, source: media.get(name), md: imageRef(name) });
   }
   return out;
 }
@@ -110,18 +116,26 @@ function slideText(slide) {
   return { title, body };
 }
 
-// Relationship ids of pictures under 10% of the slide, or used as fills: may be logos.
-function smallPictureIds(slide, slideArea) {
-  const small = new Set();
+// Share of the slide each picture covers, by relationship id (the largest
+// placement wins). Pictures used as fills or backgrounds are not placed: 0.
+function pictureAreas(slide, slideArea) {
+  const areas = new Map();
   for (const blip of slide.getElementsByTagName('a:blip')) {
     let pic = blip;
     while (pic && pic.tagName !== 'p:pic') pic = pic.parentNode;
     const ext = pic?.getElementsByTagName('a:xfrm')[0]?.getElementsByTagName('a:ext')[0];
     const area = ext ? (Number(ext.getAttribute('cx')) * Number(ext.getAttribute('cy'))) / slideArea : 0;
-    if (area < 0.1) small.add(blip.getAttribute('r:embed'));
+    const id = blip.getAttribute('r:embed');
+    areas.set(id, Math.max(areas.get(id) ?? 0, area));
   }
-  return small;
+  return areas;
 }
+
+// A placed picture under 1% of the slide (about 0.7 inch square) is an icon
+// or a bullet: on its own it tells the AI nothing and costs an image.
+const ICON_AREA = 0.01;
+// Pictures under 10% of the slide, or used as fills, may be template logos.
+const SMALL_AREA = 0.1;
 
 async function slideNotes(zip, slideRels) {
   const notesPath = slideRels.find((r) => r.type.endsWith('/notesSlide'))?.path;
@@ -132,12 +146,14 @@ async function slideNotes(zip, slideRels) {
 }
 
 // { title, body, pictures, notes } for a visible slide, null for a hidden one.
-async function readSlide(zip, path, slideArea, fileId, images) {
+async function readSlide(zip, path, slideArea, fileId, media) {
   const slide = await readXml(zip, path);
   if (slide.documentElement.getAttribute('show') === '0') return null;
   const slideRels = await rels(zip, path);
-  const small = smallPictureIds(slide, slideArea);
-  const pictures = (await embeddedImages(zip, slide, slideRels, fileId, images)).map((img) => ({ md: img.md, template: small.has(img.id) }));
+  const areas = pictureAreas(slide, slideArea);
+  const pictures = (await embeddedImages(zip, slide, slideRels, fileId, media))
+    .filter((img) => !(areas.get(img.id) > 0 && areas.get(img.id) < ICON_AREA))
+    .map((img) => ({ md: img.md, name: img.name, source: img.source, template: (areas.get(img.id) ?? 0) < SMALL_AREA }));
   return { ...slideText(slide), pictures, notes: await slideNotes(zip, slideRels) };
 }
 
@@ -158,15 +174,18 @@ function templateNoise(slides) {
   };
 }
 
-function renderSlide(s, noise) {
-  const lines = [...s.body.filter((l) => !noise.body(l)), ...s.pictures.filter((l) => !noise.pictures(l))].map((l) => l.md);
+// The slide's Markdown, and the pictures it keeps added to `assets`.
+function renderSlide(s, noise, assets) {
+  const pictures = s.pictures.filter((l) => !noise.pictures(l));
+  for (const p of pictures) assets.set(p.name, p.source);
+  const lines = [...s.body.filter((l) => !noise.body(l)), ...pictures].map((l) => l.md);
   if (!s.title && !lines.length && !s.notes) return '';
   return [contentHeading(1, `Slide ${s.number}${s.title ? `: ${s.title}` : ''}`), ...lines, s.notes && `> Notes: ${s.notes}`]
     .filter(Boolean)
     .join('\n');
 }
 
-export async function pptxToMd(buf, fileId, images) {
+export async function pptxToMd(buf, { fileId }) {
   const zip = await JSZip.loadAsync(buf);
   const pres = await readXml(zip, 'ppt/presentation.xml');
   const presRels = await rels(zip, 'ppt/presentation.xml');
@@ -174,25 +193,33 @@ export async function pptxToMd(buf, fileId, images) {
   const slideArea = Number(sldSz?.getAttribute('cx') || 12192000) * Number(sldSz?.getAttribute('cy') || 6858000);
   const slidePaths = [...pres.getElementsByTagName('p:sldId')].map((s) => presRels.find((r) => r.id === s.getAttribute('r:id')).path);
 
+  const media = new Map();
   const slides = [];
   for (const [i, path] of slidePaths.entries()) {
-    const slide = await readSlide(zip, path, slideArea, fileId, images);
+    const slide = await readSlide(zip, path, slideArea, fileId, media);
     if (slide) slides.push({ number: i + 1, ...slide });
   }
   const noise = templateNoise(slides);
-  return slides.map((s) => renderSlide(s, noise)).filter(Boolean).join('\n\n');
+  const assets = new Map();
+  const md = slides.map((s) => renderSlide(s, noise, assets)).filter(Boolean).join('\n\n');
+  return { md, assets };
 }
 
 // ---------- Word ----------
 
-export async function docxToMd(buf, fileId, images) {
+export async function docxToMd(buf, { fileId }) {
   const zip = await JSZip.loadAsync(buf);
   const body = (await readXml(zip, 'word/document.xml')).getElementsByTagName('w:body')[0];
   const docRels = await rels(zip, 'word/document.xml');
+  const media = new Map();
+  const assets = new Map();
   const out = [];
   for (const el of body.children) {
     if (el.tagName === 'w:p') {
-      out.push(...(await embeddedImages(zip, el, docRels, fileId, images)).map((img) => img.md));
+      for (const img of await embeddedImages(zip, el, docRels, fileId, media)) {
+        assets.set(img.name, img.source);
+        out.push(img.md);
+      }
       const text = textOf(el, 'w:t').trim();
       if (!text) continue;
       const style = el.getElementsByTagName('w:pStyle')[0]?.getAttribute('w:val') || '';
@@ -205,5 +232,5 @@ export async function docxToMd(buf, fileId, images) {
       if (rows.length) out.push(mdTable(rows));
     }
   }
-  return out.join('\n\n');
+  return { md: out.join('\n\n'), assets };
 }

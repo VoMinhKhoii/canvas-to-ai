@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="color-scheme" content="dark light" />
+    <title>Canvas to AI</title>
+    <link rel="stylesheet" href="sidepanel.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="course">
+        <h1 id="course">Canvas to AI</h1>
+        <p id="code"></p>
+      </div>
+      <button id="rescan" class="icon-button" aria-label="Scan again" title="Scan again">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.5-3.5M13 3v2.5h-2.5" /></svg>
+      </button>
+    </header>
+
+    <main id="folders" aria-live="polite"></main>
+
+    <footer class="bar">
+      <div id="progress" aria-hidden="true" hidden></div>
+      <p id="status" role="status"></p>
+      <div class="actions">
+        <button id="copy" class="primary" disabled>Copy for AI</button>
+        <button id="more" class="icon-button round" aria-label="More" aria-haspopup="menu" aria-expanded="false" disabled>
+          <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="3.5" cy="8" r="1.2" /><circle cx="8" cy="8" r="1.2" /><circle cx="12.5" cy="8" r="1.2" /></svg>
+        </button>
+        <div id="menu" role="menu" hidden>
+          <button role="menuitem" data-action="download">Download the files</button>
+          <button role="menuitem" data-action="save">Save with pictures</button>
+          <button role="menuitem" data-action="clear">Clear picks</button>
+        </div>
+      </div>
+    </footer>
+
+    <script type="module" src="panel.js"></script>
+  </body>
+</html>

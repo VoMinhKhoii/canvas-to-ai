@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { pagesToMd } from '../src/pdf-layout.js';
+import { pagesToMd } from '../src/pack/formats/pdf-layout.js';
 
 const styles = { sans: { fontFamily: 'sans-serif' }, mono: { fontFamily: 'monospace' }, serif: { fontFamily: 'serif' } };
 // Text fragment the way pdf.js reports it: transform [size, 0, 0, size, x, y].
@@ -161,4 +161,50 @@ test('stacked subscript and superscript share their base', () => {
   const eol = { str: '', hasEOL: true, transform: [8, 0, 0, 8, 78, 696], width: 0, fontName: 'sans' };
   const [out] = md(page([t('x', 72, 700), t('i', 78, 696, { size: 8, width: 3 }), eol, t('j', 78, 706, { size: 8, width: 3 })]));
   assert.match(out, /^x(ij|ji)$/); // one line; stacked scripts share an x, so their order is arbitrary
+});
+
+test('a lower-case line after an unfinished sentence continues it, even with loose slide spacing', () => {
+  const [out] = md(page([
+    t('Body text on this slide sets the body size for the whole page here.', 50, 500, { size: 20 }),
+    t('I cannot attend any', 50, 440, { size: 20 }), t('consultance meeting. Plus, I am busy.', 50, 395, { size: 20 }),
+  ], 540));
+  assert.equal(out, 'Body text on this slide sets the body size for the whole page here.\n\nI cannot attend any consultance meeting. Plus, I am busy.');
+});
+
+test('a larger lower-case line is not a heading', () => {
+  const [out] = md(page([
+    t('•', 35, 400, { size: 20 }), t('Business acquaintances are not as', 50, 400, { size: 20 }),
+    t('understanding or forgiving', 50, 370, { size: 24 }),
+    t('A long paragraph of body text so that the body size is twenty points.', 36, 200, { size: 20 }),
+  ], 540));
+  assert.match(out, /^- Business acquaintances are not as understanding or forgiving$/m);
+});
+
+test('heading lines that merge into a long sentence become a paragraph', () => {
+  const [out] = md(page([
+    t("Society's expected behaviours that should be used", 50, 400, { size: 24 }),
+    t('when writing or answering email messages.', 50, 372, { size: 24 }),
+    t('A long paragraph of body text so that the body size is twenty points.', 36, 200, { size: 20 }),
+    t('And a second long line of body text, also at twenty points, to be sure.', 36, 176, { size: 20 }),
+  ], 540));
+  assert.equal(out.split('\n')[0], "Society's expected behaviours that should be used when writing or answering email messages.");
+});
+
+test('a slide title wrapped onto a lower-case second line stays one heading', () => {
+  const [out] = md(page([
+    t('Message-oriented persistent', 36, 480, { size: 36 }), t('asynchronous communication', 36, 440, { size: 36 }),
+    t('•', 35, 300, { size: 24 }), t('MOM: message-oriented middleware stores messages in queues', 50, 300, { size: 24 }),
+    t('•', 35, 260, { size: 24 }), t('Applications communicate by inserting messages in queues', 50, 260, { size: 24 }),
+  ], 540));
+  assert.match(out, /^#### Message-oriented persistent asynchronous communication$/m);
+});
+
+test('large text whose sentence goes on in body text is a paragraph', () => {
+  const [out] = md(page([
+    t('Careers staff emailed this student', 50, 400, { size: 28 }),
+    t('to offer a CV consultation and here is the reply he wrote back.', 50, 370, { size: 20 }),
+    t('A long paragraph of body text so that the body size is twenty points.', 36, 200, { size: 20 }),
+    t('And a second long line of body text, also at twenty points, to be sure.', 36, 176, { size: 20 }),
+  ], 540));
+  assert.equal(out.split('\n')[0], 'Careers staff emailed this student to offer a CV consultation and here is the reply he wrote back.');
 });
