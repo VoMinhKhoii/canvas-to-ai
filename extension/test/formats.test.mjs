@@ -245,7 +245,14 @@ test('captions become a transcript; rtf keeps its text; notebooks keep code cell
 test('Arduino sketches, systemd units and calendars are read as text', async () => {
   assert.equal((await convert('blink.ino', 'void loop() {}\n')).md, '```cpp\nvoid loop() {}\n```');
   assert.match((await convert('app.service', '[Unit]\nDescription=App\n')).md, /^```ini\n\[Unit\]/);
-  assert.match((await convert('class.ics', 'BEGIN:VCALENDAR\nSUMMARY:Lab 1\nEND:VCALENDAR')).md, /SUMMARY:Lab 1/);
+  const invite = [
+    'BEGIN:VCALENDAR', 'BEGIN:VEVENT', 'ATTENDEE;CN="A Lecturer":mailto:a.lecturer@rmit.edu.', '\tvn',
+    'DESCRIPTION:Online Lecture v', '\tia TEAMS\\n\\n________________\\nClick here to join <https://aus01.safelinks.protection.outlook.com/ap/t-1/?url=x>',
+    'DTSTART;TZID=SE Asia Standard Time:20240305T090000', 'DTEND;TZID=SE Asia Standard Time:20240305T110000',
+    'LOCATION:Microsoft Teams Meeting', 'SUMMARY:OENG1272 Lecture\\, week 2', 'X-ALT-DESC;FMTTYPE=text/html:<html><body>…</body></html>',
+    'END:VEVENT', 'END:VCALENDAR',
+  ].join('\r\n');
+  assert.equal((await convert('class.ics', invite)).md, '#### OENG1272 Lecture, week 2\n2024-03-05 09:00 to 2024-03-05 11:00\nWhere: Microsoft Teams Meeting\nOnline Lecture via TEAMS\nClick here to join');
 });
 
 test('a CSV of hundreds of thousands of rows shows the first 500 and says how many more', async () => {

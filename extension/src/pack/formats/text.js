@@ -1,6 +1,7 @@
 // Text formats: source code, plain text and Markdown, Jupyter notebooks,
-// subtitles and transcripts (.vtt, .srt), and Rich Text (.rtf).
-// Each converter takes the file's text and returns { md, assets }.
+// subtitles and transcripts (.vtt, .srt), calendar invites (.ics) and Rich
+// Text (.rtf). Each converter takes the file's text and returns { md, assets }.
+import { contentHeading } from '../md.js';
 
 const none = () => new Map();
 
@@ -70,6 +71,28 @@ export function subtitles(text) {
 
 // Rich Text: control words and destination groups ({\*\...}, fonts, colours,
 // pictures) removed, paragraphs and escaped characters kept.
+// Calendar invites (.ics): each event's title, time, place and description.
+// Attendee lists (people's emails), time-zone rules, the invite's HTML copy and
+// long tracking links (meeting joins through mail filters) are left out.
+export function calendar(text) {
+  const events = [];
+  let event = null;
+  for (const line of text.replace(/\r\n?/g, '\n').replace(/\n[ \t]/g, '').split('\n')) { // lines go on after a space
+    if (line === 'BEGIN:VEVENT') event = {};
+    else if (line === 'END:VEVENT' && event) events.push(event), (event = null);
+    else if (event) {
+      const m = /^([A-Z-]+)(?:;[^:]*)?:(.*)$/.exec(line);
+      if (m) event[m[1]] ??= m[2].replace(/\\n/gi, '\n').replace(/\\([,;\\])/g, '$1').trim();
+    }
+  }
+  const when = (v) => v?.replace(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})\d*(Z?))?$/, (_, y, mo, d, h, mi, z) => `${y}-${mo}-${d}${h ? ` ${h}:${mi}${z ? ' UTC' : ''}` : ''}`);
+  const about = (s) => s?.replace(/<https?:[^>]*>/g, '').replace(/https?:\/\/\S{80,}/g, '').split('\n').map((l) => l.trim()).filter((l) => l && !/^[_\-=*]{5,}$/.test(l)).join('\n');
+  const md = events
+    .map((e) => [contentHeading(1, e.SUMMARY || 'Event'), [when(e.DTSTART), when(e.DTEND)].filter(Boolean).join(' to '), e.LOCATION && `Where: ${e.LOCATION}`, about(e.DESCRIPTION)].filter(Boolean).join('\n'))
+    .join('\n\n');
+  return { md, assets: none() };
+}
+
 export function rtf(text) {
   let s = text;
   // Drop groups that hold no body text (font/colour tables, pictures, metadata).
