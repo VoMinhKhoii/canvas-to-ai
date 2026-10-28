@@ -49,8 +49,20 @@ function message(html) {
   $('folders').innerHTML = `<p class="message">${html}</p>`;
 }
 
+// Whether the student agreed to the current terms (see termsCard), this time
+// or before (remembered in localStorage when it is available).
+let agreedNow = false;
+function agreed() {
+  try {
+    return agreedNow || localStorage.getItem(TERMS_KEY) === TERMS_VERSION;
+  } catch {
+    return agreedNow;
+  }
+}
+
 async function scan() {
   if (state.busy) return;
+  if (!agreed()) return showTerms(); // nothing is read from Canvas before that
   state.busy = true;
   updateBar();
   $('folders').innerHTML = loadingCards();
@@ -282,6 +294,7 @@ menu.addEventListener('click', async (e) => {
 // The terms card's button: agree once, then show (or scan) the course.
 $('folders').addEventListener('click', (e) => {
   if (e.target.id !== 'agree') return;
+  agreedNow = true;
   try {
     localStorage.setItem(TERMS_KEY, TERMS_VERSION);
   } catch {}
@@ -290,9 +303,4 @@ $('folders').addEventListener('click', (e) => {
 });
 
 $('rescan').addEventListener('click', scan);
-let agreed = false;
-try {
-  agreed = localStorage.getItem(TERMS_KEY) === TERMS_VERSION;
-} catch {}
-if (agreed) scan();
-else showTerms();
+scan();
