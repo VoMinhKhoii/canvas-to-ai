@@ -6,15 +6,16 @@ import { contentHeading, mdTable } from '../md.js';
 
 const xml = (s) => new DOMParser().parseFromString(s, 'application/xml');
 // Text of a text:p / text:h, with text:s (spaces), text:tab and text:line-break.
-function inline(el) {
+const inline = (el) => rawText(el).replace(/\s+/g, ' ').trim();
+function rawText(el) {
   let out = '';
   for (const n of el.childNodes) {
     if (n.nodeType === 3) out += n.textContent;
     else if (n.tagName === 'text:s') out += ' '.repeat(Number(n.getAttribute('text:c') || 1));
     else if (n.tagName === 'text:tab' || n.tagName === 'text:line-break') out += ' ';
-    else if (n.nodeType === 1 && n.tagName !== 'text:note') out += inline(n);
+    else if (n.nodeType === 1 && n.tagName !== 'text:note') out += rawText(n); // spaces at span edges are kept
   }
-  return out.replace(/\s+/g, ' ').trim();
+  return out;
 }
 
 // Block elements of an office:text body or a presentation frame → Markdown lines.

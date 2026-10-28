@@ -50,6 +50,9 @@ async function scan() {
   state.busy = true;
   updateBar();
   $('folders').innerHTML = loadingCards();
+  // The old course's cards are gone: its selection and pack go with them.
+  Object.assign(state, { course: null, sel: null, open: new Set(), packs: null });
+  forgetPack();
   try {
     const tab = await findCourseTab();
     if (!tab) {

@@ -15,7 +15,9 @@ export function htmlToMd(html, resolveImage = () => '') {
   for (const el of doc.body.querySelectorAll('[class*="module-sequence-footer"]')) (el.closest('a') ?? el).remove();
   // Inline elements laid out apart by CSS ("<b>Customer Portal</b>Architecture lab")
   // would run together as text; put a space between them.
+  // Code is literal: highlighted code is spans too.
   for (const el of doc.body.querySelectorAll('span, button, label, a, b, strong, em, small')) {
+    if (el.closest('pre, code')) continue;
     const next = el.nextSibling;
     if (next && (next.nodeType === Node.ELEMENT_NODE || /^[\p{L}\p{N}]/u.test(next.textContent))) el.after(' ');
   }

@@ -63,6 +63,15 @@ test('doc: the main text, paragraph by paragraph', async () => {
   assert.equal(md.split('\n\n').slice(0, 3).join('|'), 'I am a test document|This is page 1|I am Calibri (Body) in font size 11');
 });
 
+test('doc: a damaged formatting record is an error, not a hang', async () => {
+  const cfb = XLSX.CFB.read(new Uint8Array(fixture('SampleDoc.doc')), { type: 'array' });
+  const word = XLSX.CFB.find(cfb, 'WordDocument').content;
+  const fcClx = word[0x1a2] | (word[0x1a3] << 8) | (word[0x1a4] << 16) | (word[0x1a5] << 24);
+  const table = XLSX.CFB.find(cfb, word[0x0b] & 0x02 ? '1Table' : '0Table').content;
+  [0x01, 0xfd, 0xff].forEach((b, k) => (table[fcClx + k] = b)); // a Prc whose length reads as -3
+  await assert.rejects(convert('broken.doc', XLSX.CFB.write(cfb, { type: 'array' })));
+});
+
 // ---------- Office Open XML ----------
 
 function slideXml({ title, bullets = [], pictures = [] }) {
@@ -117,12 +126,12 @@ test('docx: headings, lists, tables and pictures', async () => {
 test('odt and odp', async () => {
   const odt = new JSZip();
   odt.file('content.xml', `<office:document-content xmlns:office="o" xmlns:text="t" xmlns:table="tb"><office:body><office:text>
-    <text:h text:outline-level="1">Week 1 notes</text:h><text:p>Hello<text:s text:c="2"/>world</text:p>
+    <text:h text:outline-level="1">Week 1 notes</text:h><text:p>Hello<text:s text:c="2"/>world</text:p><text:p><text:span>Bold </text:span><text:span>and plain</text:span></text:p>
     <text:list><text:list-item><text:p>First</text:p></text:list-item><text:list-item><text:p>Second</text:p></text:list-item></text:list>
     <table:table><table:table-row><table:table-cell><text:p>A</text:p></table:table-cell><table:table-cell><text:p>B</text:p></table:table-cell></table:table-row></table:table>
   </office:text></office:body></office:document-content>`);
   const { md } = await convert('notes.odt', await bytesOf(odt));
-  assert.equal(md, '#### Week 1 notes\n\nHello world\n\n- First\n\n- Second\n\n| A | B |\n| --- | --- |');
+  assert.equal(md, '#### Week 1 notes\n\nHello world\n\nBold and plain\n\n- First\n\n- Second\n\n| A | B |\n| --- | --- |');
 
   const odp = new JSZip();
   odp.file('content.xml', `<office:document-content xmlns:office="o" xmlns:text="t" xmlns:draw="d"><office:body><office:presentation>
@@ -140,8 +149,8 @@ test('epub: chapters in spine order, with their pictures', async () => {
   zip.file('OEBPS/ch2.xhtml', '<html><body><h1>Chapter 2</h1><p>Trade-offs.</p></body></html>');
   zip.file('OEBPS/images/fig.png', picture(20_000));
   const { md, assets } = await convert('book.epub', await bytesOf(zip));
-  assert.equal(md, '#### Chapter 1\n\nDesign is choices.\n\n![](images/1-fig.png)\n\n#### Chapter 2\n\nTrade-offs.');
-  assert.deepEqual([...assets.keys()], ['1-fig.png']);
+  assert.equal(md, '#### Chapter 1\n\nDesign is choices.\n\n![](images/1-OEBPS_images_fig-y4zeqd.png)\n\n#### Chapter 2\n\nTrade-offs.');
+  assert.deepEqual([...assets.keys()], ['1-OEBPS_images_fig-y4zeqd.png']);
 });
 
 // ---------- archives ----------

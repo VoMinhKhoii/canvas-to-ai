@@ -8,6 +8,11 @@ test('headings keep literal characters', () => {
   assert.equal(htmlToMd('<h1>__init__ and 2 ** 3</h1>'), '#### __init__ and 2 ** 3');
 });
 
+test('highlighted code keeps its characters together', () => {
+  assert.match(htmlToMd('<pre><code>a<span>&lt;</span><span>&lt;</span>1</code></pre>'), /a<<1/);
+  assert.match(htmlToMd('<p>Use <code><span>x</span><span>++</span></code> here</p>'), /`x\+\+`/);
+});
+
 test('bold inside headings is not marked up', () => {
   assert.equal(htmlToMd('<h2><strong>HTML5 tags</strong></h2>'), '##### HTML5 tags');
 });

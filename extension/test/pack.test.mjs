@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import './helpers/dom.mjs';
 import { makePdf } from './helpers/pdf.mjs';
+import JSZip from 'jszip';
 
 const { createPackBuilder, isReadable } = await import('../src/pack/build.js');
 
@@ -105,4 +106,39 @@ test('a picked picture whose file Canvas has locked is left out, not linked', as
   assert.deepEqual(images, []);
   assert.deepEqual(skipped, [{ title: 'Answers', reason: 'Locked until Nov 10' }]);
   assert.ok(!markdown.includes('images/'));
+});
+
+// ---------- archives through the builder ----------
+
+const zipOf = async (entries) => {
+  const zip = new JSZip();
+  for (const [name, data] of Object.entries(entries)) zip.file(name, data);
+  return zip.generateAsync({ type: 'arraybuffer' });
+};
+const zipPick = (id) => [{ folder: week1, section: lab, item: file('z', id, 'code.zip') }];
+
+test('zips inside a zip: pictures keep their own names, and one budget covers them all', async () => {
+  const shots = (n) => zipOf({ 'img.png': new Uint8Array(20_000).fill(n) });
+  const many = (prefix) => zipOf(Object.fromEntries(Array.from({ length: 100 }, (_, i) => [`${prefix}/f${i}.txt`, `${prefix} file ${i}`])));
+  const store = {
+    21: { name: 'pictures.zip', bytes: await zipOf({ 'a.zip': await shots(1), 'b.zip': await shots(2) }) },
+    22: { name: 'nested.zip', bytes: await zipOf({ 'one.zip': await many('one'), 'two.zip': await many('two') }) },
+  };
+  const packs = createPackBuilder({ files: fakeFiles(store), pdf });
+
+  const { images } = await packs.build(course, zipPick(21));
+  assert.equal(new Set(images.map((i) => i.name)).size, 2); // a.zip/img.png and b.zip/img.png
+
+  const { markdown } = await packs.build(course, zipPick(22));
+  const files = markdown.match(/#### (one|two)\/f\d+\.txt/g) ?? [];
+  assert.equal(files.length, 120 - 2); // the two inner zips count as files too
+  assert.match(markdown, /more files not included/);
+});
+
+test('a zip stays near its length cap, however its files are sized', async () => {
+  const big = (c) => c.repeat(60_000);
+  const store = { 23: { name: 'big.zip', bytes: await zipOf({ 'a.txt': big('a'), 'b.txt': big('b'), 'c.txt': big('c'), 'd.txt': big('d') }) } };
+  const { markdown } = await createPackBuilder({ files: fakeFiles(store), pdf }).build(course, zipPick(23));
+  assert.ok(markdown.length < 201_000, String(markdown.length));
+  assert.match(markdown, /cut here/);
 });

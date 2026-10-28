@@ -1,6 +1,7 @@
 // PDF → Markdown: text through pdf-layout.js; pages that are mostly a picture
 // (diagrams, scans) are rendered and added as images.
 import { pagesToMd } from './pdf-layout.js';
+import { imageName } from '../names.js';
 
 const MAX_RENDERED_PAGES = 40;
 
@@ -40,7 +41,7 @@ export async function pdfToMd(bytes, { fileId, pdf }) {
     if (bodyChars < 80 && assets.size < MAX_RENDERED_PAGES) {
       const blob = await renderIfPicture(lib, pdf.renderPage, doc, i + 1, Boolean(md));
       if (blob) {
-        const name = `${fileId}-p${i + 1}.jpg`;
+        const name = imageName(`${fileId}-p${i + 1}.jpg`);
         assets.set(name, { blob });
         pageMd = [md, `![](images/${name})`].filter(Boolean).join('\n\n'); // keep the (short) text too
       }

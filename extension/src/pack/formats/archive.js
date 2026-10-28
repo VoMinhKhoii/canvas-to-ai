@@ -18,9 +18,12 @@ const MAX_FILE_CHARS = 60_000;
 const MAX_TOTAL_CHARS = 200_000; // about 50k tokens per archive
 const MAX_IMAGES = 20;
 
-// ctx.convertEntry(name, bytes) converts one file by its own format; it
-// returns null for a file no converter reads.
+// ctx.convertEntry(name, bytes, budget) converts one file by its own format;
+// it returns null for a file no converter reads. A zip inside this one gets
+// the same budget, spent before each conversion, so nesting can't multiply
+// the work or the length.
 export async function archive(bytes, ctx) {
+  const budget = ctx.budget ?? { files: MAX_FILES, chars: MAX_TOTAL_CHARS };
   const zip = await JSZip.loadAsync(bytes);
   const entries = Object.values(zip.files)
     .filter((e) => !e.dir && !SKIP_DIRS.test(e.name) && !SKIP_TOOL_DIRS.test(e.name) && !SKIP_FILES.test(e.name))
@@ -36,8 +39,6 @@ export async function archive(bytes, ctx) {
   const pictureBundle = entries.every((e) => IMAGE_EXTS.has(extOf(e.name)) || !ctx.isReadable(e.name));
   const assets = new Map();
   const seen = new Set(); // identical files (a template copied into several folders) are sent once
-  let total = 0;
-  let converted = 0;
   const cut = [];
   for (const entry of entries) {
     const ext = extOf(entry.name);
@@ -51,28 +52,32 @@ export async function archive(bytes, ctx) {
       parts.push(`${contentHeading(1, entry.name)}\n![](images/${name})`);
       continue;
     }
-    if (converted >= MAX_FILES || total >= MAX_TOTAL_CHARS) {
+    if (!ctx.isReadable(entry.name)) continue;
+    if (budget.files <= 0 || budget.chars <= 0) {
       cut.push(entry.name);
       continue;
     }
+    budget.files--;
     let result;
     try {
-      result = await ctx.convertEntry(entry.name, await entry.async('arraybuffer'));
+      result = await ctx.convertEntry(entry.name, await entry.async('arraybuffer'), budget);
     } catch {
       result = null; // a damaged entry should not lose the rest of the archive
     }
     if (!result?.md || BOILERPLATE.some((re) => re.test(result.md)) || seen.has(result.md)) continue;
     seen.add(result.md);
     let md = result.md;
-    if (md.length > MAX_FILE_CHARS) {
-      md = md.slice(0, MAX_FILE_CHARS);
-      if (md.startsWith('```')) md += '\n```'; // close the code block before the note
-      md += '\n\n_(cut here: the rest of this file is too long to include)_';
+    if (ext !== 'zip') { // a zip inside already spent the budget for its own files
+      const room = Math.min(MAX_FILE_CHARS, budget.chars);
+      if (md.length > room) {
+        md = md.slice(0, room);
+        if (md.startsWith('```')) md += '\n```'; // close the code block before the note
+        md += '\n\n_(cut here: the rest of this file is too long to include)_';
+      }
+      budget.chars -= md.length;
     }
     for (const [name, source] of result.assets) assets.set(name, source);
     parts.push(`${contentHeading(1, entry.name)}\n${md}`);
-    total += md.length;
-    converted++;
   }
   if (cut.length) parts.push(`_(${cut.length} more files not included to keep this archive's part a readable size)_`);
   return { md: parts.join('\n\n'), assets };

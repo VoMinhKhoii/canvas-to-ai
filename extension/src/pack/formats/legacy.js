@@ -165,7 +165,7 @@ export async function doc(bytes) {
   // Skip any Prc entries (formatting) to reach the Pcdt (the piece table).
   let o = fcClx;
   const clxEnd = fcClx + lcbClx;
-  while (o < clxEnd && table[o] === 0x01) o += 3 + t.getInt16(o + 1, true);
+  while (o < clxEnd && table[o] === 0x01) o += 3 + t.getUint16(o + 1, true); // unsigned: always moves forward
   if (table[o] !== 0x02) throw new Error('damaged Word file');
   const lcb = t.getUint32(o + 1, true);
   const plc = o + 5;

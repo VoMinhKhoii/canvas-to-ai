@@ -31,12 +31,18 @@ export function createPackBuilder({ files, pdf }) {
     return metas.get(id);
   };
 
-  // Converts one file (or a file inside an archive) by its format.
-  async function convertBytes(name, bytes, fileId) {
+  // Converts one file (or a file inside an archive) by its format. fileId
+  // names its pictures; a file inside an archive adds its path, so two
+  // documents in one zip keep their own pictures. `budget` is the archive's
+  // limits, shared with any zip inside it.
+  async function convertBytes(name, bytes, fileId, budget) {
     const converter = converterFor(name);
     if (!converter) return null;
     const input = converter.binary ? bytes : new TextDecoder().decode(bytes);
-    return converter.convert(input, { fileId, pdf, isReadable, convertEntry: (entryName, entryBytes) => convertBytes(entryName, entryBytes, fileId) });
+    return converter.convert(input, {
+      fileId, pdf, isReadable, budget,
+      convertEntry: (entryName, entryBytes, entryBudget) => convertBytes(entryName, entryBytes, `${fileId}/${entryName}`, entryBudget),
+    });
   }
 
   async function convertFile(item) {

@@ -33,7 +33,7 @@ export async function epub(bytes, { fileId }) {
     for (const [, src] of html.matchAll(/<img[^>]+src="([^"]+)"/g)) {
       const target = join(dirOf(path), src);
       const data = IMAGE_EXTS.has(extOf(target)) && (await zip.file(target)?.async('uint8array'));
-      if (data && data.length >= MIN_IMAGE_BYTES) pictures.set(src, { name: imageName(`${fileId}-${target.split('/').pop()}`), blob: new Blob([data], { type: `image/${extOf(target).replace('jpg', 'jpeg')}` }) });
+      if (data && data.length >= MIN_IMAGE_BYTES) pictures.set(src, { name: imageName(`${fileId}-${target}`), blob: new Blob([data], { type: `image/${extOf(target).replace('jpg', 'jpeg')}` }) });
     }
     const md = htmlToMd(html, (img) => {
       const pic = pictures.get(img.getAttribute('src'));
