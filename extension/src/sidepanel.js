@@ -1,5 +1,6 @@
 import { collectCourse } from './collect.js';
-import { buildMarkdown, safe } from './convert.js';
+import { buildMarkdown } from './convert.js';
+import { safe } from './names.js';
 
 const $ = (id) => document.getElementById(id);
 const COURSE_URL = /^https:\/\/[^/]+\.instructure\.com\/courses\/(\d+)/;
