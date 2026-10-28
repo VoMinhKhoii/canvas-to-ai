@@ -43,6 +43,7 @@ function* walk(view, o) {
   const end = Math.min(root.end, view.byteLength);
   for (let at = root.body; at + 8 <= end; ) {
     const r = header(view, at);
+    if (r.end > end) throw new Error('damaged PowerPoint file'); // a record runs past its container
     yield { ...r, at };
     at = r.container ? r.body : r.end;
   }
@@ -181,8 +182,12 @@ export async function doc(bytes) {
     const compressed = (fcRaw & 0x40000000) !== 0;
     const fc = fcRaw & 0x3fffffff;
     const chars = cpEnd - cpStart;
-    text += compressed ? win1252.decode(word.subarray(fc / 2, fc / 2 + chars)) : utf16.decode(word.subarray(fc, fc + chars * 2));
+    const start = compressed ? fc / 2 : fc;
+    const end = start + (compressed ? chars : chars * 2);
+    if (chars < 0 || end > word.length) throw new Error('damaged Word file'); // subarray would cut it short silently
+    text += compressed ? win1252.decode(word.subarray(start, end)) : utf16.decode(word.subarray(start, end));
   }
+  if (text.length < ccpText) throw new Error('damaged Word file');
   return { md: cleanWordText(text.slice(0, ccpText)), assets: new Map() };
 }
 

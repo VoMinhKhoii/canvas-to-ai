@@ -18,13 +18,23 @@ const MAX_LISTED = 300;
 const MAX_FILES = 120;
 const MAX_FILE_CHARS = 60_000;
 const MAX_TOTAL_CHARS = 200_000; // about 50k tokens per archive
+const MAX_TOTAL_BYTES = 100 * 1024 * 1024; // unpacked, as the zip declares it
 const MAX_IMAGES = 20;
 
 // Each file inside converts by its own format, its pictures named by its path
 // (ctx.fileId/path). A zip inside this one gets the same budget, spent before
-// each conversion, so nesting can't multiply the work or the length.
+// each file is unpacked, so nesting can't multiply the work, the memory or
+// the length.
 export async function archive(bytes, ctx) {
-  const budget = ctx.budget ?? { files: MAX_FILES, chars: MAX_TOTAL_CHARS };
+  const budget = ctx.budget ?? { files: MAX_FILES, chars: MAX_TOTAL_CHARS, bytes: MAX_TOTAL_BYTES };
+  // Spends the budget on one file before it is unpacked; false when it doesn't fit.
+  const spend = (entry) => {
+    const size = entry._data?.uncompressedSize ?? 0;
+    if (budget.files <= 0 || budget.chars <= 0 || size > budget.bytes) return false;
+    budget.files--;
+    budget.bytes -= size;
+    return true;
+  };
   const zip = await JSZip.loadAsync(bytes);
   const entries = Object.values(zip.files)
     .filter((e) => !e.dir && !SKIP_DIRS.test(e.name) && !SKIP_TOOL_DIRS.test(e.name) && !SKIP_FILES.test(e.name))
@@ -47,19 +57,23 @@ export async function archive(bytes, ctx) {
     if (IMAGE_EXTS.has(ext)) {
       if (!pictureBundle) continue;
       if (assets.size >= MAX_IMAGES) continue;
+      if (!spend(entry)) {
+        cut.push(entry.name);
+        continue;
+      }
       const pic = await picture(zip, entry.name);
       if (!pic) continue;
       const name = imageName(`${ctx.fileId}-${entry.name}`);
       assets.set(name, pic);
       parts.push(`${contentHeading(1, entry.name)}\n${imageRef(name)}`);
+      budget.chars -= parts.at(-1).length;
       continue;
     }
     if (!isReadable(entry.name)) continue;
-    if (budget.files <= 0 || budget.chars <= 0) {
+    if (!spend(entry)) {
       cut.push(entry.name);
       continue;
     }
-    budget.files--;
     let result;
     try {
       result = await convert(entry.name, await entry.async('arraybuffer'), { ...ctx, fileId: `${ctx.fileId}/${entry.name}`, budget });
@@ -78,7 +92,7 @@ export async function archive(bytes, ctx) {
       }
       budget.chars -= md.length;
     }
-    for (const [name, source] of result.assets) assets.set(name, source);
+    for (const [name, source] of result.assets) if (md.includes(imageRef(name))) assets.set(name, source); // not the pictures of a part cut off
     parts.push(`${contentHeading(1, entry.name)}\n${md}`);
   }
   if (cut.length) parts.push(`_(${cut.length} more files not included to keep this archive's part a readable size)_`);

@@ -72,6 +72,19 @@ test('doc: a damaged formatting record is an error, not a hang', async () => {
   await assert.rejects(convert('broken.doc', XLSX.CFB.write(cfb, { type: 'array' })));
 });
 
+test('doc: a piece that points outside the document is an error, not a short text', async () => {
+  const cfb = XLSX.CFB.read(new Uint8Array(fixture('SampleDoc.doc')), { type: 'array' });
+  const word = XLSX.CFB.find(cfb, 'WordDocument').content;
+  const u32 = (b, o) => (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0;
+  const table = XLSX.CFB.find(cfb, word[0x0b] & 0x02 ? '1Table' : '0Table').content;
+  let o = u32(word, 0x1a2);
+  while (table[o] === 0x01) o += 3 + (table[o + 1] | (table[o + 2] << 8));
+  const n = (u32(table, o + 1) - 4) / 12;
+  const fcAt = o + 5 + (n + 1) * 4 + 2; // the first piece's file offset
+  [0x00, 0x00, 0xff, 0x3f].forEach((b, k) => (table[fcAt + k] = b)); // far past the end of WordDocument
+  await assert.rejects(convert('broken.doc', XLSX.CFB.write(cfb, { type: 'array' })), /damaged Word file/);
+});
+
 // ---------- Office Open XML ----------
 
 function slideXml({ title, bullets = [], pictures = [] }) {
@@ -172,6 +185,35 @@ test('zip: contents listed, readable files converted, build and dependency files
   assert.match(md, /#### lab\/README.md\n#### Lab 3\nRun it./); // its own heading goes under the file's
   assert.ok(!md.includes('left-pad') && !md.includes('module.exports'));
   assert.equal(assets.size, 0); // a code project's pictures are its icons: not sent
+});
+
+test('zip: files are paid for before they are unpacked, pictures too, from one budget', async () => {
+  const text = new JSZip();
+  text.file('small.txt', 'fits');
+  text.file('zbig.txt', 'x'.repeat(5_000)); // unpacks past what is left
+  const budget = { files: 120, chars: 200_000, bytes: 1_000 };
+  const { md } = await convert('code.zip', await text.generateAsync({ type: 'arraybuffer', compression: 'DEFLATE' }), { budget });
+  assert.match(md, /#### small.txt\nfits/);
+  assert.ok(!md.includes('xxxx') && /1 more files not included/.test(md), md);
+
+  const shots = new JSZip();
+  for (let i = 0; i < 5; i++) shots.file(`s${i}.png`, picture(20_000 + i));
+  const { assets } = await convert('shots.zip', await bytesOf(shots), { budget: { files: 2, chars: 200_000, bytes: 1e9 } });
+  assert.equal(assets.size, 2);
+});
+
+test('zip: a document cut for length sends only the pictures its kept part shows', async () => {
+  const doc = new JSZip();
+  doc.file('word/document.xml', `<w:document xmlns:w="w" xmlns:a="a" xmlns:r="r"><w:body>
+    <w:p><w:r><w:t>${'word '.repeat(14_000)}</w:t></w:r></w:p>
+    <w:p><w:r><w:drawing><a:blip r:embed="rId9"/></w:drawing></w:r></w:p></w:body></w:document>`);
+  doc.file('word/_rels/document.xml.rels', '<Relationships><Relationship Id="rId9" Type="image" Target="media/late.png"/></Relationships>');
+  doc.file('word/media/late.png', picture(20_000));
+  const outer = new JSZip();
+  outer.file('notes.docx', await bytesOf(doc));
+  const { md, assets } = await convert('week.zip', await bytesOf(outer));
+  assert.match(md, /cut here/);
+  assert.equal(assets.size, 0);
 });
 
 // ---------- text formats ----------
