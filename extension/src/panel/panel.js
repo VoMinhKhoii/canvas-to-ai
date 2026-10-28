@@ -3,7 +3,7 @@
 import { scanCourse } from '../canvas/scan.js';
 import { tabCanvas, canvasFiles } from '../canvas/tab-adapter.js';
 import { createPackBuilder } from '../pack/build.js';
-import { safe } from '../pack/names.js';
+import { safe, pathAllocator } from '../pack/names.js';
 import { createSelection } from './selection.js';
 import { htmlToMd } from '../pack/formats/html-to-md.js';
 import { folderCards, folderCard, pickedLine, loadingCards, termsCard } from './view.js';
@@ -220,7 +220,7 @@ const download = (url, filename) => chrome.downloads.download({ url, filename, c
 
 async function downloadTree(course, packs, entries) {
   const wanted = entries.filter(({ item }) => !item.locked && (item.kind === 'file' || (item.kind === 'page' && item.html)));
-  const used = new Map(); // path → file id: a different file with the same name gets its id added
+  const place = pathAllocator(); // files and pages share the folders: no name is used twice
   let files = 0;
   let pages = 0;
   let locked = 0;
@@ -228,8 +228,9 @@ async function downloadTree(course, packs, entries) {
     setStatus(`Downloading ${n + 1} of ${wanted.length}…`);
     const dir = [folderDir(course, folder), section.title && safe(section.title)].filter(Boolean).join('/');
     if (item.kind === 'page') {
+      const path = place(dir, `${safe(item.title)}.md`, `page:${item.key}`);
       const md = `# ${item.title}\n\n${htmlToMd(item.html)}\n`;
-      await download(URL.createObjectURL(new Blob([md], { type: 'text/markdown' })), `${dir}/${safe(item.title)}.md`);
+      await download(URL.createObjectURL(new Blob([md], { type: 'text/markdown' })), path);
       pages++;
       continue;
     }
@@ -238,10 +239,8 @@ async function downloadTree(course, packs, entries) {
       locked++;
       continue;
     }
-    let path = `${dir}/${safe(info.name)}`;
-    if (used.has(path) && used.get(path) !== item.id) path = path.replace(/(\.[^./]*)?$/, ` (${item.id})$1`);
-    if (used.get(path) === item.id) continue; // the same file twice in one folder
-    used.set(path, item.id);
+    const path = place(dir, safe(info.name), `file:${item.id}`);
+    if (!path) continue; // the same file twice in one folder
     await download(info.url, path);
     files++;
   }

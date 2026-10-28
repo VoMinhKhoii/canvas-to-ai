@@ -247,6 +247,7 @@ test('Arduino sketches, systemd units and calendars are read as text', async () 
   assert.match((await convert('app.service', '[Unit]\nDescription=App\n')).md, /^```ini\n\[Unit\]/);
   const invite = [
     'BEGIN:VCALENDAR', 'BEGIN:VEVENT', 'ATTENDEE;CN="A Lecturer":mailto:a.lecturer@rmit.edu.', '\tvn',
+    'BEGIN:VALARM', 'DESCRIPTION:Reminder', 'ACTION:DISPLAY', 'END:VALARM', // a reminder first: its description is not the event's
     'DESCRIPTION:Online Lecture v', '\tia TEAMS\\n\\n________________\\nClick here to join <https://aus01.safelinks.protection.outlook.com/ap/t-1/?url=x>',
     'DTSTART;TZID=SE Asia Standard Time:20240305T090000', 'DTEND;TZID=SE Asia Standard Time:20240305T110000',
     'LOCATION:Microsoft Teams Meeting', 'SUMMARY:OENG1272 Lecture\\, week 2', 'X-ALT-DESC;FMTTYPE=text/html:<html><body>…</body></html>',

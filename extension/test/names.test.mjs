@@ -24,3 +24,17 @@ test('long names are cut to 100 characters, keeping the file name and staying di
   assert.notEqual(a, imageName(deep('part-two')));
   assert.ok(imageName(`7/v1.2/${'x'.repeat(200)}`).length <= 100); // a dot that isn't an extension
 });
+
+test('one download run never gives two different things the same path', async () => {
+  const { pathAllocator } = await import('../src/pack/names.js');
+  const place = pathAllocator();
+  assert.equal(place('W1', 'notes (2).txt', 'file:1'), 'W1/notes (2).txt');
+  assert.equal(place('W1', 'notes.txt', 'file:2'), 'W1/notes.txt');
+  assert.equal(place('W1', 'notes.txt', 'file:3'), 'W1/notes (3).txt'); // (2) is file 1's
+  assert.equal(place('W1', 'notes.txt', 'file:3'), null); // already saved there
+  assert.equal(place('W1', 'Lecture.md', 'page:a'), 'W1/Lecture.md');
+  assert.equal(place('W1', 'Lecture.md', 'page:b'), 'W1/Lecture (2).md');
+  assert.equal(place('W2', 'notes.txt', 'file:3'), 'W2/notes.txt'); // another folder
+  assert.equal(place('W1', 'README', 'file:9'), 'W1/README');
+  assert.equal(place('W1', 'README', 'file:8'), 'W1/README (2)');
+});

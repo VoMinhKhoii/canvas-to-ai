@@ -76,11 +76,17 @@ export function subtitles(text) {
 // long tracking links (meeting joins through mail filters) are left out.
 export function calendar(text) {
   const events = [];
+  const open = []; // components we are inside: VCALENDAR, VEVENT, VALARM…
   let event = null;
   for (const line of text.replace(/\r\n?/g, '\n').replace(/\n[ \t]/g, '').split('\n')) { // lines go on after a space
-    if (line === 'BEGIN:VEVENT') event = {};
-    else if (line === 'END:VEVENT' && event) events.push(event), (event = null);
-    else if (event) {
+    const begin = /^BEGIN:(\S+)$/.exec(line)?.[1];
+    const end = /^END:(\S+)$/.exec(line)?.[1];
+    if (begin) {
+      open.push(begin);
+      if (begin === 'VEVENT') event = {};
+    } else if (end) {
+      if (open.pop() === 'VEVENT' && event) events.push(event), (event = null);
+    } else if (event && open.at(-1) === 'VEVENT') { // not a reminder's (VALARM) own description
       const m = /^([A-Z-]+)(?:;[^:]*)?:(.*)$/.exec(line);
       if (m) event[m[1]] ??= m[2].replace(/\\n/gi, '\n').replace(/\\([,;\\])/g, '$1').trim();
     }

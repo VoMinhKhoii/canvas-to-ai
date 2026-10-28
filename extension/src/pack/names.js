@@ -25,5 +25,21 @@ export function imageName(original) {
 // How the Markdown refers to a picture saved as images/<name>.
 export const imageRef = (name) => `![](images/${name})`;
 
+// Paths for one download run: place(dir, name, id) gives a path no other id
+// has, adding " (2)", " (3)"… before the extension as needed, or null when
+// `id` is already saved in that folder.
+export function pathAllocator() {
+  const used = new Map(); // path → id
+  return (dir, name, id) => {
+    const dot = name.lastIndexOf('.');
+    const [stem, ext] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ''];
+    for (let n = 1; ; n++) {
+      const path = `${dir}/${n === 1 ? name : `${stem} (${n})${ext}`}`;
+      if (!used.has(path)) return used.set(path, id), path;
+      if (used.get(path) === id) return null;
+    }
+  };
+}
+
 // Safe file/folder name for downloads.
 export const safe = (s) => s.replace(/[\\/:*?"<>|~\x00-\x1f]+/g, '_').replace(/^[\s.]+|[\s.]+$/g, '').slice(0, 120) || 'untitled';
