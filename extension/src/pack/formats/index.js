@@ -1,15 +1,16 @@
-// The registry of readable formats. converterFor(fileName) gives
-// { binary, convert(input, ctx) → Promise<{ md, assets }> } or null;
-// unreadableReason(fileName) says, in a student's words, why a file is not
-// read. Heavy libraries (pdf.js, SheetJS, JSZip) load only when a file needs
-// them.
+// The registry of readable formats. convert(fileName, bytes, ctx) gives
+// { md, assets }, or null for a file no converter reads (ctx: { fileId, pdf,
+// budget? }); isReadable(fileName) says whether the pack can read a file, as
+// text or as a picture; unreadableReason(fileName) says, in a student's
+// words, why not. Heavy libraries (pdf.js, SheetJS, JSZip) load only when a
+// file needs them.
 import { CODE, CODE_NAMES, code, plain, markdown, notebook, subtitles, rtf } from './text.js';
 import { htmlToMd } from './html-to-md.js';
-import { extOf } from '../names.js';
+import { IMAGE_EXTS, extOf } from '../names.js';
 
 const lazy = (load, name) => async (input, ctx) => (await load())[name](input, ctx);
-const binary = (convert) => ({ binary: true, convert });
-const text = (convert) => ({ binary: false, convert: async (input, ctx) => convert(input, ctx) });
+const binary = (fn) => ({ binary: true, convert: fn });
+const text = (fn) => ({ binary: false, convert: fn });
 
 const pdf = binary(lazy(() => import('./pdf.js'), 'pdfToMd'));
 const pptx = binary(lazy(() => import('./ooxml.js'), 'pptxToMd'));
@@ -51,6 +52,15 @@ export function converterFor(fileName) {
   if (byName) return text(code(byName));
   return FORMATS[extOf(fileName)] ?? null;
 }
+
+export async function convert(fileName, bytes, ctx) {
+  const converter = converterFor(fileName);
+  if (!converter) return null;
+  return converter.convert(converter.binary ? bytes : new TextDecoder().decode(bytes), ctx);
+}
+
+export const isImage = (fileName) => IMAGE_EXTS.has(extOf(fileName));
+export const isReadable = (fileName) => isImage(fileName) || Boolean(converterFor(fileName));
 
 const REASONS = [
   [/^(mp4|mov|m4v|avi|mkv|webm|wmv|flv)$/, 'video: the AI can\'t watch it here'],

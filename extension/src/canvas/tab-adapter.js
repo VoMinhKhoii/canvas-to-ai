@@ -1,3 +1,5 @@
+import { lockedReason } from './locked.js';
+
 // The Canvas seam's adapter in the extension: each request is answered by
 // tab-proxy.js inside the student's Canvas tab, so it carries their session.
 export async function tabCanvas(tabId) {
@@ -18,8 +20,7 @@ export function canvasFiles(canvas) {
   return {
     async meta(id) {
       const { data } = await canvas.get(`/api/v1/files/${id}`);
-      const locked = data.locked_for_user || !data.url ? (data.lock_explanation ?? '').replace(/<[^>]+>/g, '').trim() || 'Locked' : '';
-      return { name: data.display_name, size: data.size ?? 0, url: data.url ?? '', locked };
+      return { name: data.display_name, size: data.size ?? 0, url: data.url ?? '', locked: lockedReason(data, data.locked_for_user || !data.url) };
     },
     async bytes(url) {
       const res = await fetch(url);

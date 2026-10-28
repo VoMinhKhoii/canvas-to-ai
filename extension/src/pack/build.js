@@ -10,18 +10,14 @@
 //   pdf.load()         → the pdf.js build;  pdf.renderPage(page) → Blob | null
 // Conversions are cached by file id for the builder's lifetime, and run a few
 // at a time while the document is assembled in order.
-import { converterFor, unreadableReason } from './formats/index.js';
+import { convert, isImage, isReadable, unreadableReason } from './formats/index.js';
 import { htmlToMd } from './formats/html-to-md.js';
-import { IMAGE_EXTS, MIN_IMAGE_BYTES, extOf, imageName } from './names.js';
+import { MIN_IMAGE_BYTES, imageName, imageRef } from './names.js';
 import { codeTags } from './md.js';
+import { limiter } from '../limit.js';
 
 const MAX_BYTES = 100 * 1024 * 1024;
 const PARALLEL = 3;
-
-export const isImage = (fileName) => IMAGE_EXTS.has(extOf(fileName));
-// Whether the pack can read this file (as text or as a picture).
-export const isReadable = (fileName) => isImage(fileName) || Boolean(converterFor(fileName));
-export { unreadableReason };
 
 export function createPackBuilder({ files, pdf }) {
   const metas = new Map(); // file id → Promise<meta>
@@ -31,25 +27,11 @@ export function createPackBuilder({ files, pdf }) {
     return metas.get(id);
   };
 
-  // Converts one file (or a file inside an archive) by its format. fileId
-  // names its pictures; a file inside an archive adds its path, so two
-  // documents in one zip keep their own pictures. `budget` is the archive's
-  // limits, shared with any zip inside it.
-  async function convertBytes(name, bytes, fileId, budget) {
-    const converter = converterFor(name);
-    if (!converter) return null;
-    const input = converter.binary ? bytes : new TextDecoder().decode(bytes);
-    return converter.convert(input, {
-      fileId, pdf, isReadable, budget,
-      convertEntry: (entryName, entryBytes, entryBudget) => convertBytes(entryName, entryBytes, `${fileId}/${entryName}`, entryBudget),
-    });
-  }
-
   async function convertFile(item) {
     const info = await meta(item.id);
     if (info.locked) throw new Error(info.locked);
     if (info.size > MAX_BYTES) throw new Error('too large');
-    const result = await convertBytes(item.fileName, await files.bytes(info.url), item.id);
+    const result = await convert(item.fileName, await files.bytes(info.url), { fileId: item.id, pdf });
     if (!result) throw new Error(unreadableReason(item.fileName));
     return result;
   }
@@ -83,6 +65,13 @@ export function createPackBuilder({ files, pdf }) {
       }),
     );
 
+    // A Canvas file shown as a picture, fetched by its download link.
+    const canvasPicture = (id, info) => {
+      const name = imageName(`${id}-${info.name}`);
+      assets.set(name, { url: info.url });
+      return imageRef(name);
+    };
+
     // Pictures shown in pages are course files: their names and download links
     // are looked up before the page is converted.
     const pageImages = async (html) => {
@@ -93,13 +82,29 @@ export function createPackBuilder({ files, pdf }) {
         const id = Number(/\/files\/(\d+)/.exec(img.getAttribute('src') || '')?.[1]);
         const info = found.get(id);
         if (!info?.url || info.locked || !isImage(info.name) || info.size < MIN_IMAGE_BYTES) return '';
-        const name = imageName(`${id}-${info.name}`);
-        assets.set(name, { url: info.url });
-        return `![](images/${name})`;
+        return canvasPicture(id, info);
       };
     };
 
+    // What an item becomes under its heading; throws the reason it is left out.
     const seen = new Set();
+    async function body(item) {
+      if (item.kind === 'page') return htmlToMd(item.html, await pageImages(item.html));
+      if (item.kind === 'link') return `Link: ${item.url}`;
+      if (item.locked) throw new Error(item.locked);
+      if (seen.has(item.id)) return '_(same file as above)_';
+      seen.add(item.id);
+      if (isImage(item.fileName)) {
+        const info = await meta(item.id);
+        if (info.locked) throw new Error(info.locked);
+        return canvasPicture(item.id, info);
+      }
+      if (!isReadable(item.fileName)) throw new Error(unreadableReason(item.fileName));
+      const result = await runs.get(item.id);
+      for (const [name, source] of result.assets) assets.set(name, source);
+      return result.md || '_(no text found)_';
+    }
+
     let folder = null;
     let section = null;
     for (const { folder: f, section: s, item } of picked) {
@@ -112,44 +117,8 @@ export function createPackBuilder({ files, pdf }) {
         if (s.title) parts.push(`**${s.title}**`);
         section = s;
       }
-      if (item.kind === 'page') {
-        parts.push(`### ${item.title}\n${htmlToMd(item.html, await pageImages(item.html))}`);
-        continue;
-      }
-      if (item.kind === 'link') {
-        parts.push(`### ${item.title}\nLink: ${item.url}`);
-        continue;
-      }
-      const heading = `### ${item.title}`;
-      if (item.locked) {
-        skipped.push({ title: item.title, reason: item.locked });
-        continue;
-      }
-      if (seen.has(item.id)) {
-        parts.push(`${heading}\n_(same file as above)_`);
-        continue;
-      }
-      seen.add(item.id);
-      if (isImage(item.fileName)) {
-        try {
-          const info = await meta(item.id);
-          if (info.locked) throw new Error(info.locked);
-          const name = imageName(`${item.id}-${info.name}`);
-          assets.set(name, { url: info.url });
-          parts.push(`${heading}\n![](images/${name})`);
-        } catch (e) {
-          skipped.push({ title: item.title, reason: e.message });
-        }
-        continue;
-      }
-      if (!isReadable(item.fileName)) {
-        skipped.push({ title: item.title, reason: unreadableReason(item.fileName) });
-        continue;
-      }
       try {
-        const result = await runs.get(item.id);
-        for (const [name, source] of result.assets) assets.set(name, source);
-        parts.push(`${heading}\n${result.md || '_(no text found)_'}`);
+        parts.push(`### ${item.title}\n${await body(item)}`);
       } catch (e) {
         skipped.push({ title: item.title, reason: e.message });
       }
@@ -165,26 +134,3 @@ export function createPackBuilder({ files, pdf }) {
   return { build, meta };
 }
 
-// limit(task) runs task() once fewer than n tasks are running; tasks start in
-// the order they were given.
-function limiter(n) {
-  let active = 0;
-  const queue = [];
-  const pump = () => {
-    while (active < n && queue.length) {
-      const { task, resolve, reject } = queue.shift();
-      active++;
-      Promise.resolve()
-        .then(task)
-        .then(resolve, reject)
-        .finally(() => {
-          active--;
-          pump();
-        });
-    }
-  };
-  return (task) => new Promise((resolve, reject) => {
-    queue.push({ task, resolve, reject });
-    pump();
-  });
-}

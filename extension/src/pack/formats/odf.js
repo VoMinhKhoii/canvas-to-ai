@@ -3,8 +3,8 @@
 // spreadsheets go through sheet.js.)
 import JSZip from 'jszip';
 import { contentHeading, mdTable } from '../md.js';
+import { xml } from './zip.js';
 
-const xml = (s) => new DOMParser().parseFromString(s, 'application/xml');
 // Text of a text:p / text:h, with text:s (spaces), text:tab and text:line-break.
 const inline = (el) => rawText(el).replace(/\s+/g, ' ').trim();
 function rawText(el) {

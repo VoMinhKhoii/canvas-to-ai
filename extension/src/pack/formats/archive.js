@@ -4,7 +4,9 @@
 // one huge project from flooding the pack (each cut is said in the Markdown).
 import JSZip from 'jszip';
 import { contentHeading } from '../md.js';
-import { IMAGE_EXTS, MIN_IMAGE_BYTES, extOf, imageName } from '../names.js';
+import { IMAGE_EXTS, extOf, imageName, imageRef } from '../names.js';
+import { picture } from './zip.js';
+import { convert, isImage, isReadable } from './index.js';
 
 const SKIP_DIRS = /(^|\/)(node_modules|\.git|\.svn|__MACOSX|\.idea|\.vscode|\.gradle|\.next|\.nuxt|dist|build|out|target|bin|obj|venv|\.venv|__pycache__|\.pytest_cache|\.DS_Store|coverage|vendor)(\/|$)/;
 const SKIP_FILES = /(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|poetry\.lock|Pipfile\.lock|composer\.lock|Cargo\.lock|gradlew(\.bat)?|mvnw(\.cmd)?|\.env[^/]*|[^/]*\.min\.(js|css)|[^/]*\.map|\.gitignore|\.gitattributes|\.editorconfig|\.DS_Store|LICEN[CS]E(\.\w+)?|HELP\.md)$/i;
@@ -18,10 +20,9 @@ const MAX_FILE_CHARS = 60_000;
 const MAX_TOTAL_CHARS = 200_000; // about 50k tokens per archive
 const MAX_IMAGES = 20;
 
-// ctx.convertEntry(name, bytes, budget) converts one file by its own format;
-// it returns null for a file no converter reads. A zip inside this one gets
-// the same budget, spent before each conversion, so nesting can't multiply
-// the work or the length.
+// Each file inside converts by its own format, its pictures named by its path
+// (ctx.fileId/path). A zip inside this one gets the same budget, spent before
+// each conversion, so nesting can't multiply the work or the length.
 export async function archive(bytes, ctx) {
   const budget = ctx.budget ?? { files: MAX_FILES, chars: MAX_TOTAL_CHARS };
   const zip = await JSZip.loadAsync(bytes);
@@ -37,7 +38,7 @@ export async function archive(bytes, ctx) {
 
   // Pictures inside a code project are its icons and logos; only an archive
   // of pictures (no readable text in it) sends them.
-  const pictureBundle = entries.every((e) => IMAGE_EXTS.has(extOf(e.name)) || !ctx.isReadable(e.name));
+  const pictureBundle = entries.every((e) => isImage(e.name) || !isReadable(e.name));
   const assets = new Map();
   const seen = new Set(); // identical files (a template copied into several folders) are sent once
   const cut = [];
@@ -46,14 +47,14 @@ export async function archive(bytes, ctx) {
     if (IMAGE_EXTS.has(ext)) {
       if (!pictureBundle) continue;
       if (assets.size >= MAX_IMAGES) continue;
-      const data = await entry.async('uint8array');
-      if (data.length < MIN_IMAGE_BYTES) continue;
+      const pic = await picture(zip, entry.name);
+      if (!pic) continue;
       const name = imageName(`${ctx.fileId}-${entry.name}`);
-      assets.set(name, { blob: new Blob([data], { type: `image/${ext.replace('jpg', 'jpeg')}` }) });
-      parts.push(`${contentHeading(1, entry.name)}\n![](images/${name})`);
+      assets.set(name, pic);
+      parts.push(`${contentHeading(1, entry.name)}\n${imageRef(name)}`);
       continue;
     }
-    if (!ctx.isReadable(entry.name)) continue;
+    if (!isReadable(entry.name)) continue;
     if (budget.files <= 0 || budget.chars <= 0) {
       cut.push(entry.name);
       continue;
@@ -61,7 +62,7 @@ export async function archive(bytes, ctx) {
     budget.files--;
     let result;
     try {
-      result = await ctx.convertEntry(entry.name, await entry.async('arraybuffer'), budget);
+      result = await convert(entry.name, await entry.async('arraybuffer'), { ...ctx, fileId: `${ctx.fileId}/${entry.name}`, budget });
     } catch {
       result = null; // a damaged entry should not lose the rest of the archive
     }

@@ -2,9 +2,9 @@
 // converter, with their pictures.
 import JSZip from 'jszip';
 import { htmlToMd } from './html-to-md.js';
-import { IMAGE_EXTS, MIN_IMAGE_BYTES, extOf, imageName } from '../names.js';
+import { imageName, imageRef } from '../names.js';
+import { xml, picture } from './zip.js';
 
-const xml = (s) => new DOMParser().parseFromString(s, 'application/xml');
 const dirOf = (path) => (path.includes('/') ? path.slice(0, path.lastIndexOf('/') + 1) : '');
 function join(dir, href) {
   const parts = (dir + decodeURIComponent(href.split('#')[0])).split('/');
@@ -32,14 +32,14 @@ export async function epub(bytes, { fileId }) {
     const pictures = new Map();
     for (const [, src] of html.matchAll(/<img[^>]+src="([^"]+)"/g)) {
       const target = join(dirOf(path), src);
-      const data = IMAGE_EXTS.has(extOf(target)) && (await zip.file(target)?.async('uint8array'));
-      if (data && data.length >= MIN_IMAGE_BYTES) pictures.set(src, { name: imageName(`${fileId}-${target}`), blob: new Blob([data], { type: `image/${extOf(target).replace('jpg', 'jpeg')}` }) });
+      const pic = await picture(zip, target);
+      if (pic) pictures.set(src, { name: imageName(`${fileId}-${target}`), ...pic });
     }
     const md = htmlToMd(html, (img) => {
       const pic = pictures.get(img.getAttribute('src'));
       if (!pic) return '';
       assets.set(pic.name, { blob: pic.blob });
-      return `![](images/${pic.name})`;
+      return imageRef(pic.name);
     });
     if (md) chapters.push(md);
   }

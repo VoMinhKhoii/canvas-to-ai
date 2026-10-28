@@ -73,14 +73,17 @@ function persistDirectory(view, currentUser) {
   return { live, doc: edits.at(-1).doc };
 }
 
+const isText = (r) => r.type === TEXT_CHARS || r.type === TEXT_BYTES;
+const atomText = (stream, r) => (r.type === TEXT_CHARS ? utf16 : win1252).decode(stream.subarray(r.body, r.end)).replace(/[\r\v]/g, '\n').trim();
+
 // Text atoms of one slide or notes container: [{ title?, text }].
 function containerText(view, stream, o) {
   const out = [];
   let textType = 1;
   for (const r of walk(view, o)) {
     if (r.type === TEXT_HEADER) textType = view.getUint32(r.body, true);
-    if (r.type !== TEXT_CHARS && r.type !== TEXT_BYTES) continue;
-    const text = (r.type === TEXT_CHARS ? utf16 : win1252).decode(stream.subarray(r.body, Math.min(r.end, stream.length))).replace(/[\r\v]/g, '\n').trim();
+    if (!isText(r)) continue;
+    const text = atomText(stream, r);
     if (text) out.push({ title: TITLE_TYPES.has(textType), text });
   }
   return out;
@@ -113,8 +116,8 @@ export async function ppt(bytes) {
     if (r.type === SLIDE_PERSIST && list === 2) notesById.set(view.getUint32(r.body + 12, true), view.getUint32(r.body, true));
     if (list === 0 && slides.length) {
       if (r.type === TEXT_HEADER) slides.at(-1).textType = view.getUint32(r.body, true);
-      if (r.type === TEXT_CHARS || r.type === TEXT_BYTES) {
-        const text = (r.type === TEXT_CHARS ? utf16 : win1252).decode(stream.subarray(r.body, r.end)).replace(/[\r\v]/g, '\n').trim();
+      if (isText(r)) {
+        const text = atomText(stream, r);
         if (text) slides.at(-1).listed.push({ title: TITLE_TYPES.has(slides.at(-1).textType), text });
       }
     }

@@ -3,9 +3,9 @@
 // exactly the pictures the Markdown refers to.
 import JSZip from 'jszip';
 import { contentHeading, mdTable } from '../md.js';
-import { IMAGE_EXTS, MIN_IMAGE_BYTES, extOf, imageName } from '../names.js';
+import { IMAGE_EXTS, extOf, imageName, imageRef } from '../names.js';
+import { xml, picture } from './zip.js';
 
-const xml = (s) => new DOMParser().parseFromString(s, 'application/xml');
 const readXml = async (zip, path) => xml(await zip.file(path).async('string'));
 const textOf = (el, tag) => [...el.getElementsByTagName(tag)].map((t) => t.textContent).join('');
 // Text of one DrawingML paragraph; <a:br/> line breaks become spaces.
@@ -57,12 +57,8 @@ async function embeddedImages(zip, el, partRels, fileId, media) {
     const path = partRels.find((r) => r.id === id)?.path;
     if (!path || !IMAGE_EXTS.has(extOf(path))) continue;
     const name = imageName(`${fileId}-${path.split('/').pop()}`);
-    if (!media.has(name)) {
-      const data = await zip.file(path)?.async('uint8array');
-      const type = `image/${extOf(path).replace('jpg', 'jpeg')}`;
-      media.set(name, data && data.length >= MIN_IMAGE_BYTES ? { blob: new Blob([data], { type }) } : null);
-    }
-    if (media.get(name)) out.push({ id, name, source: media.get(name), md: `![](images/${name})` });
+    if (!media.has(name)) media.set(name, await picture(zip, path));
+    if (media.get(name)) out.push({ id, name, source: media.get(name), md: imageRef(name) });
   }
   return out;
 }
@@ -157,7 +153,7 @@ async function readSlide(zip, path, slideArea, fileId, media) {
   const areas = pictureAreas(slide, slideArea);
   const pictures = (await embeddedImages(zip, slide, slideRels, fileId, media))
     .filter((img) => !(areas.get(img.id) > 0 && areas.get(img.id) < ICON_AREA))
-    .map((img) => ({ md: img.md, asset: [img.name, img.source], template: (areas.get(img.id) ?? 0) < SMALL_AREA }));
+    .map((img) => ({ md: img.md, name: img.name, source: img.source, template: (areas.get(img.id) ?? 0) < SMALL_AREA }));
   return { ...slideText(slide), pictures, notes: await slideNotes(zip, slideRels) };
 }
 
@@ -181,7 +177,7 @@ function templateNoise(slides) {
 // The slide's Markdown, and the pictures it keeps added to `assets`.
 function renderSlide(s, noise, assets) {
   const pictures = s.pictures.filter((l) => !noise.pictures(l));
-  for (const p of pictures) assets.set(...p.asset);
+  for (const p of pictures) assets.set(p.name, p.source);
   const lines = [...s.body.filter((l) => !noise.body(l)), ...pictures].map((l) => l.md);
   if (!s.title && !lines.length && !s.notes) return '';
   return [contentHeading(1, `Slide ${s.number}${s.title ? `: ${s.title}` : ''}`), ...lines, s.notes && `> Notes: ${s.notes}`]

@@ -1,7 +1,8 @@
 // What the side panel draws, as HTML strings: the folder cards, and the words
 // a student reads. No state lives here; panel.js decides what to show.
 import { sectionId } from './selection.js';
-import { isReadable } from '../pack/build.js';
+import { isReadable } from '../pack/formats/index.js';
+import { extOf } from '../pack/names.js';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
@@ -30,7 +31,7 @@ const KIND_BY_EXT = [
 function itemIcon(item) {
   if (item.kind === 'link') return 'link';
   if (item.kind === 'page') return 'page';
-  const ext = item.fileName.split('.').pop().toLowerCase();
+  const ext = extOf(item.fileName);
   return KIND_BY_EXT.find(([re]) => re.test(ext))?.[1] ?? 'code';
 }
 
@@ -63,11 +64,11 @@ function itemRow(item, sel) {
   </div>`;
 }
 
-function folderCard(folder, sel, open) {
+export function folderCard(folder, sel, open) {
   const { name, topic } = folderName(folder.title);
   const state = sel.state(folder.id);
   const pickable = sel.size(folder.id) > 0;
-  const picked = sel.picked().filter((p) => p.folder === folder).length;
+  const picked = sel.pickedIn(folder.id);
   const body = open
     ? `<div class="body">${folder.sections
         .map((section, i) => {
@@ -90,7 +91,6 @@ function folderCard(folder, sel, open) {
 }
 
 export const folderCards = (course, sel, openIds) => course.folders.map((f) => folderCard(f, sel, openIds.has(f.id))).join('');
-export const oneCard = (folder, sel, open) => folderCard(folder, sel, open);
 
 // "5 picked from Week 1", "12 picked from 3 weeks".
 export function pickedLine(sel) {

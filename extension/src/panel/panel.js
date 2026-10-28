@@ -5,7 +5,7 @@ import { tabCanvas, canvasFiles } from '../canvas/tab-adapter.js';
 import { createPackBuilder } from '../pack/build.js';
 import { safe } from '../pack/names.js';
 import { createSelection } from './selection.js';
-import { folderCards, oneCard, pickedLine, loadingCards, folderName } from './view.js';
+import { folderCards, folderCard, pickedLine, loadingCards, folderName } from './view.js';
 
 const $ = (id) => document.getElementById(id);
 const COURSE_URL = /^https:\/\/[^/]+\.instructure\.com\/courses\/(\d+)/;
@@ -79,7 +79,7 @@ async function scan() {
 
 function redraw(folderId) {
   const folder = state.course.folders.find((f) => f.id === folderId);
-  document.querySelector(`.card[data-folder="${CSS.escape(folderId)}"]`).outerHTML = oneCard(folder, state.sel, state.open.has(folderId));
+  document.querySelector(`.card[data-folder="${CSS.escape(folderId)}"]`).outerHTML = folderCard(folder, state.sel, state.open.has(folderId));
 }
 
 function updateBar() {
@@ -95,9 +95,6 @@ function forgetPack() {
   $('copy').textContent = 'Copy for AI';
 }
 
-// The card a node (folder, section or item) belongs to.
-const folderOf = (id) => id.split(/[#:]/)[0];
-
 $('folders').addEventListener('click', (e) => {
   const opener = e.target.closest('[data-open]');
   if (opener) {
@@ -110,7 +107,7 @@ $('folders').addEventListener('click', (e) => {
   if (pick && state.sel && !state.busy) {
     state.sel.toggle(pick.dataset.pick);
     forgetPack();
-    redraw(folderOf(pick.dataset.pick));
+    redraw(pick.closest('.card').dataset.folder);
     updateBar();
     document.querySelector(`[data-pick="${CSS.escape(pick.dataset.pick)}"]`)?.focus();
   }
@@ -201,44 +198,49 @@ document.addEventListener('click', (e) => !e.target.closest('#menu, #more') && c
 const folderPath = (course, folder) => `Canvas/${safe(course.name)}/${String(course.folders.indexOf(folder) + 1).padStart(2, '0')} ${safe(folderName(folder.title).name)}`;
 const download = (url, filename) => chrome.downloads.download({ url, filename, conflictAction: 'overwrite', saveAs: false });
 
+// The ⋯ menu's actions. A scan can start while one runs: each keeps the
+// course it began with.
+async function downloadFiles({ course, packs, sel }) {
+  const files = sel.picked().filter(({ item }) => item.kind === 'file' && !item.locked);
+  let started = 0;
+  for (const { folder, item } of files) {
+    const info = await packs.meta(item.id);
+    if (info.locked) continue;
+    await download(info.url, `${folderPath(course, folder)}/${safe(info.name)}`);
+    started++;
+  }
+  const rest = sel.count() - files.length;
+  const locked = files.length - started;
+  setStatus(
+    `Downloading ${started} files to Downloads › Canvas.` +
+      (rest ? ` Pages and links aren't files, so ${rest} ${rest === 1 ? 'was' : 'were'} skipped.` : '') +
+      (locked ? ` ${locked} ${locked === 1 ? 'is' : 'are'} locked.` : ''),
+    'done',
+  );
+}
+
+async function saveWithPictures({ course }) {
+  const pack = await currentPack();
+  const folder = `Canvas/${safe(course.name)} - for AI`;
+  await download(URL.createObjectURL(new Blob([pack.markdown], { type: 'text/markdown' })), `${folder}/course.md`);
+  for (const img of pack.images) await download(img.url ?? URL.createObjectURL(img.blob), `${folder}/images/${img.name}`);
+  setStatus(`Saved to Downloads › ${folder}. Drag <b>course.md</b> and the <b>images</b> folder into the chat.`, 'done');
+}
+
+function clearPicks({ course, sel }) {
+  sel.clear();
+  forgetPack();
+  $('folders').innerHTML = folderCards(course, sel, state.open);
+  updateBar();
+}
+
+const ACTIONS = { download: downloadFiles, save: saveWithPictures, clear: clearPicks };
 menu.addEventListener('click', async (e) => {
-  const action = e.target.closest('[data-action]')?.dataset.action;
+  const action = ACTIONS[e.target.closest('[data-action]')?.dataset.action];
   if (!action) return;
   closeMenu();
-  // A scan can start while files download: keep the course this action began with.
-  const { course, packs, sel } = state;
   try {
-    if (action === 'download') {
-      const files = sel.picked().filter(({ item }) => item.kind === 'file' && !item.locked);
-      let started = 0;
-      for (const { folder, item } of files) {
-        const info = await packs.meta(item.id);
-        if (info.locked) continue;
-        await download(info.url, `${folderPath(course, folder)}/${safe(info.name)}`);
-        started++;
-      }
-      const rest = sel.count() - files.length;
-      const locked = files.length - started;
-      setStatus(
-        `Downloading ${started} files to Downloads › Canvas.` +
-          (rest ? ` Pages and links aren't files, so ${rest} ${rest === 1 ? 'was' : 'were'} skipped.` : '') +
-          (locked ? ` ${locked} ${locked === 1 ? 'is' : 'are'} locked.` : ''),
-        'done',
-      );
-    }
-    if (action === 'save') {
-      const pack = await currentPack();
-      const folder = `Canvas/${safe(course.name)} - for AI`;
-      await download(URL.createObjectURL(new Blob([pack.markdown], { type: 'text/markdown' })), `${folder}/course.md`);
-      for (const img of pack.images) await download(img.url ?? URL.createObjectURL(img.blob), `${folder}/images/${img.name}`);
-      setStatus(`Saved to Downloads › ${folder}. Drag <b>course.md</b> and the <b>images</b> folder into the chat.`, 'done');
-    }
-    if (action === 'clear') {
-      state.sel.clear();
-      forgetPack();
-      $('folders').innerHTML = folderCards(state.course, state.sel, state.open);
-      updateBar();
-    }
+    await action({ ...state });
   } catch (err) {
     setStatus(`That didn't work: ${err.message}`, 'error');
   }

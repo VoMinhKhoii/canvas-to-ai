@@ -22,5 +22,8 @@ export function imageName(original) {
   return `${stem.slice(-(MAX_NAME - tag.length))}${tag}`;
 }
 
+// How the Markdown refers to a picture saved as images/<name>.
+export const imageRef = (name) => `![](images/${name})`;
+
 // Safe file/folder name for downloads.
 export const safe = (s) => s.replace(/[\\/:*?"<>|~\x00-\x1f]+/g, '_').replace(/^[\s.]+|[\s.]+$/g, '').slice(0, 120) || 'untitled';

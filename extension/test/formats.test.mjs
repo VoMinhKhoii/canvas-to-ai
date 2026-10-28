@@ -164,10 +164,7 @@ test('zip: contents listed, readable files converted, build and dependency files
   zip.file('lab/package-lock.json', '{}');
   zip.file('lab/screen.png', picture(20_000));
   zip.file('lab/tool.exe', picture(100));
-  const ctx = { fileId: 5, isReadable: (name) => Boolean(converterFor(name)), convertEntry: async (name, bytes) => {
-    const c = converterFor(name);
-    return c ? c.convert(c.binary ? bytes : new TextDecoder().decode(bytes), { fileId: 5 }) : null;
-  } };
+  const ctx = { fileId: 5 };
   const { md, assets } = await convert('lab3.zip', await bytesOf(zip), ctx);
   assert.match(md, /^#### Contents \(5 files; 2 build, dependency or editor files left out\)\n- lab\/data.csv\n- lab\/README.md\n- lab\/screen.png\n- lab\/src\/Main.java\n- lab\/tool.exe/);
   assert.match(md, /#### lab\/src\/Main.java\n```java\nclass Main \{/);
@@ -204,10 +201,7 @@ test('zip: generated READMEs, licences and identical copies are left out; a pict
   project.file('app/src/App.js', 'export default 1;');
   project.file('solution/src/App.js', 'export default 1;');
   project.file('solution/src/Extra.js', 'export const x = 2;');
-  const ctx = { fileId: 6, isReadable: (name) => Boolean(converterFor(name)), convertEntry: async (name, bytes) => {
-    const c = converterFor(name);
-    return c ? c.convert(c.binary ? bytes : new TextDecoder().decode(bytes), { fileId: 6 }) : null;
-  } };
+  const ctx = { fileId: 6 };
   const { md } = await convert('code.zip', await bytesOf(project), ctx);
   assert.ok(!md.includes('bootstrapped') && !md.includes('#### app/LICENSE'), md);
   assert.equal(md.match(/export default 1;/g).length, 1);

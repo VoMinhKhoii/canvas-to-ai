@@ -4,7 +4,8 @@ import './helpers/dom.mjs';
 import { makePdf } from './helpers/pdf.mjs';
 import JSZip from 'jszip';
 
-const { createPackBuilder, isReadable } = await import('../src/pack/build.js');
+const { createPackBuilder } = await import('../src/pack/build.js');
+const { isReadable } = await import('../src/pack/formats/index.js');
 
 // The file seam, in memory: Canvas file details by id, bytes by URL.
 function fakeFiles(files) {

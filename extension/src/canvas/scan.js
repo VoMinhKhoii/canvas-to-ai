@@ -10,11 +10,15 @@
 // for their text and the files they link to. File details (download link,
 // size) are left to the pack, for the files a student actually picks.
 
+import { limiter } from '../limit.js';
+import { lockedReason } from './locked.js';
+
 const LIMIT = 6; // requests in flight, well under Canvas's rate limit
 const PAGE_TYPES = new Set(['Page', 'Assignment', 'Discussion']);
 
 export async function scanCourse(canvas, courseId, { onProgress = () => {} } = {}) {
-  const get = limited(canvas.get, LIMIT);
+  const limit = limiter(LIMIT);
+  const get = (url) => limit(() => canvas.get(url));
   const getAll = async (url) => {
     const out = [];
     for (let next = url; next; ) {
@@ -45,7 +49,7 @@ export async function scanCourse(canvas, courseId, { onProgress = () => {} } = {
   const fileItem = (id) => {
     if (!linkedFiles.has(id)) {
       linkedFiles.set(id, get(`/api/v1/files/${id}`).then(
-        ({ data }) => ({ kind: 'file', id, title: data.display_name, fileName: data.display_name, locked: data.locked_for_user ? plain(data.lock_explanation) || 'Locked' : '' }),
+        ({ data }) => ({ kind: 'file', id, title: data.display_name, fileName: data.display_name, locked: lockedReason(data) }),
         () => null, // not visible to this student
       ));
     }
@@ -66,7 +70,7 @@ export async function scanCourse(canvas, courseId, { onProgress = () => {} } = {
   }
 
   async function moduleItem(it) {
-    const locked = it.content_details?.locked_for_user ? plain(it.content_details.lock_explanation) || 'Locked' : '';
+    const locked = lockedReason(it.content_details);
     switch (it.type) {
       case 'File':
         return [{ kind: 'file', id: it.content_id, title: it.title, fileName: it.content_details?.display_name ?? it.title, locked }];
@@ -117,21 +121,3 @@ export async function scanCourse(canvas, courseId, { onProgress = () => {} } = {
   return { id: String(courseId), name: course.name, code: course.course_code ?? '', folders: kept };
 }
 
-// Lock explanations come as HTML ("This file is locked until <b>…</b>").
-const plain = (html) => (html ?? '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
-
-// fn limited to n calls in flight.
-function limited(fn, n) {
-  let active = 0;
-  const waiting = [];
-  return async (...args) => {
-    while (active >= n) await new Promise((resolve) => waiting.push(resolve));
-    active++;
-    try {
-      return await fn(...args);
-    } finally {
-      active--;
-      waiting.shift()?.();
-    }
-  };
-}
