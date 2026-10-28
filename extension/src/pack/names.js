@@ -8,14 +8,18 @@ export const extOf = (name) => (name.includes('.') ? name.split('.').pop().toLow
 // Image files are referenced as ![](images/<name>); a name made only of
 // [A-Za-z0-9._-] can't break the link or the reference lookup. When cleaning
 // changes a name, a hash of the original keeps distinct names distinct
-// ("plot+1.png" vs "plot_1.png").
+// ("plot+1.png" vs "plot_1.png"). A long name (a picture deep inside a zip)
+// keeps its end, where the file's own name is, within MAX_NAME characters.
+const MAX_NAME = 100;
 export function imageName(original) {
   const clean = original.replace(/[^\w.-]+/g, '_');
-  if (clean === original) return clean;
+  if (clean === original && clean.length <= MAX_NAME) return clean;
   let h = 0x811c9dc5; // FNV-1a
   for (const ch of original) h = Math.imul(h ^ ch.codePointAt(0), 0x01000193) >>> 0;
   const dot = clean.lastIndexOf('.');
-  return dot > 0 ? `${clean.slice(0, dot)}-${h.toString(36)}${clean.slice(dot)}` : `${clean}-${h.toString(36)}`;
+  const [stem, ext] = dot > 0 && clean.length - dot <= 6 ? [clean.slice(0, dot), clean.slice(dot)] : [clean, ''];
+  const tag = `-${h.toString(36)}${ext}`;
+  return `${stem.slice(-(MAX_NAME - tag.length))}${tag}`;
 }
 
 // Safe file/folder name for downloads.

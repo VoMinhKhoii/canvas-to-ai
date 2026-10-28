@@ -198,24 +198,26 @@ $('more').addEventListener('click', () => {
 });
 document.addEventListener('click', (e) => !e.target.closest('#menu, #more') && closeMenu());
 
-const folderPath = (folder) => `Canvas/${safe(state.course.name)}/${String(state.course.folders.indexOf(folder) + 1).padStart(2, '0')} ${safe(folderName(folder.title).name)}`;
+const folderPath = (course, folder) => `Canvas/${safe(course.name)}/${String(course.folders.indexOf(folder) + 1).padStart(2, '0')} ${safe(folderName(folder.title).name)}`;
 const download = (url, filename) => chrome.downloads.download({ url, filename, conflictAction: 'overwrite', saveAs: false });
 
 menu.addEventListener('click', async (e) => {
   const action = e.target.closest('[data-action]')?.dataset.action;
   if (!action) return;
   closeMenu();
+  // A scan can start while files download: keep the course this action began with.
+  const { course, packs, sel } = state;
   try {
     if (action === 'download') {
-      const files = state.sel.picked().filter(({ item }) => item.kind === 'file' && !item.locked);
+      const files = sel.picked().filter(({ item }) => item.kind === 'file' && !item.locked);
       let started = 0;
       for (const { folder, item } of files) {
-        const info = await state.packs.meta(item.id);
+        const info = await packs.meta(item.id);
         if (info.locked) continue;
-        await download(info.url, `${folderPath(folder)}/${safe(info.name)}`);
+        await download(info.url, `${folderPath(course, folder)}/${safe(info.name)}`);
         started++;
       }
-      const rest = state.sel.count() - files.length;
+      const rest = sel.count() - files.length;
       const locked = files.length - started;
       setStatus(
         `Downloading ${started} files to Downloads › Canvas.` +
@@ -226,7 +228,7 @@ menu.addEventListener('click', async (e) => {
     }
     if (action === 'save') {
       const pack = await currentPack();
-      const folder = `Canvas/${safe(state.course.name)} - for AI`;
+      const folder = `Canvas/${safe(course.name)} - for AI`;
       await download(URL.createObjectURL(new Blob([pack.markdown], { type: 'text/markdown' })), `${folder}/course.md`);
       for (const img of pack.images) await download(img.url ?? URL.createObjectURL(img.blob), `${folder}/images/${img.name}`);
       setStatus(`Saved to Downloads › ${folder}. Drag <b>course.md</b> and the <b>images</b> folder into the chat.`, 'done');

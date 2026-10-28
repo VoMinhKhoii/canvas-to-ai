@@ -33,6 +33,7 @@ export async function archive(bytes, ctx) {
   const listed = entries.slice(0, MAX_LISTED).map((e) => `- ${e.name}`);
   if (entries.length > MAX_LISTED) listed.push(`- … and ${entries.length - MAX_LISTED} more files`);
   const parts = [`${contentHeading(1, `Contents (${entries.length} files${skipped ? `; ${skipped} build, dependency or editor files left out` : ''})`)}\n${listed.join('\n')}`];
+  budget.chars -= parts[0].length; // every archive, nested or not, pays for its own list
 
   // Pictures inside a code project are its icons and logos; only an archive
   // of pictures (no readable text in it) sends them.
@@ -67,7 +68,7 @@ export async function archive(bytes, ctx) {
     if (!result?.md || BOILERPLATE.some((re) => re.test(result.md)) || seen.has(result.md)) continue;
     seen.add(result.md);
     let md = result.md;
-    if (ext !== 'zip') { // a zip inside already spent the budget for its own files
+    if (ext !== 'zip') { // a zip inside already spent the budget for its list and files
       const room = Math.min(MAX_FILE_CHARS, budget.chars);
       if (md.length > room) {
         md = md.slice(0, room);

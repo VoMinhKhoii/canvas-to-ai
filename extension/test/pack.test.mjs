@@ -142,3 +142,12 @@ test('a zip stays near its length cap, however its files are sized', async () =>
   assert.ok(markdown.length < 201_000, String(markdown.length));
   assert.match(markdown, /cut here/);
 });
+
+test('the contents list of every zip inside a zip counts toward the length cap', async () => {
+  const listing = (n) => zipOf(Object.fromEntries(Array.from({ length: 300 }, (_, i) => [`${'d'.repeat(90)}/${n}-${i}.bin`, 'x'])));
+  const inner = {};
+  for (let n = 0; n < 20; n++) inner[`n${n}.zip`] = await listing(n); // all different, so none is a duplicate
+  const store = { 24: { name: 'lists.zip', bytes: await zipOf(inner) } };
+  const { markdown } = await createPackBuilder({ files: fakeFiles(store), pdf }).build(course, zipPick(24));
+  assert.ok(markdown.length < 240_000, String(markdown.length)); // one list may overshoot; 20 would be ~600k
+});
