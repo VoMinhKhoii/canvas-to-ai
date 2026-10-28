@@ -22,10 +22,11 @@ export function htmlToMd(html, resolveImage = () => '') {
   td.remove(['script', 'style', 'noscript', 'iframe', 'svg', 'nav']);
   td.addRule('shiftHeadings', {
     filter: ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'],
-    replacement: (content, node) => {
-      // Plain text (no **bold** markers), but keep images converted inside the heading.
+    replacement: (_, node) => {
+      // Plain text (no **bold** markers), but keep images inside the heading,
+      // taken from the DOM rather than re-parsed out of the Markdown.
       const text = node.textContent.replace(/\s+/g, ' ').trim();
-      const images = content.match(/!\[[^\]]*\]\([^)]*\)/g) || [];
+      const images = [...node.querySelectorAll('img')].map(resolveImage).filter(Boolean);
       const heading = text && `${'#'.repeat(Math.min(6, Number(node.nodeName[1]) + 3))} ${text}`;
       const out = [heading, ...images].filter(Boolean).join('\n\n');
       return out ? `\n\n${out}\n\n` : '';

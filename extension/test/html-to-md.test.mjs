@@ -25,6 +25,11 @@ test('images inside headings are kept', () => {
   assert.equal(md, '##### Diagram\n\n![](images/123-d.png)');
 });
 
+test('images with parentheses in the name inside headings are kept whole', () => {
+  const ref = '![](images/123-diagram_(1).png)'; // whatever the resolver returns is kept verbatim
+  assert.equal(htmlToMd('<h2>Diagram<img src="/courses/1/files/123"></h2>', () => ref), `##### Diagram\n\n${ref}`);
+});
+
 test('Canvas module footer is removed, prose and code mentioning Previous/Next are kept', () => {
   const html = `<p>Next week we cover Kafka.</p><pre><code>Previous\nNext</code></pre>
     <a data-api-returntype="Module" href="/courses/1/modules/2"><span class="module-sequence-footer-button--previous">Previous</span></a>`;

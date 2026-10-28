@@ -16,6 +16,9 @@ const CODE_EXTS = new Set([
 ]);
 
 const extOf = (name) => (name.includes('.') ? name.split('.').pop().toLowerCase() : '');
+// Image files are referenced as ![](images/<name>); a name made only of these
+// characters can't break the link or the reference lookup in buildMarkdown.
+const imageName = (s) => s.replace(/[^\w.-]+/g, '_');
 export const safe = (s) => s.replace(/[\\/:*?"<>|~\x00-\x1f]+/g, '_').replace(/^[\s.]+|[\s.]+$/g, '').slice(0, 120) || 'untitled';
 
 const IMAGE_OPS = new Set([pdfjs.OPS.paintImageXObject, pdfjs.OPS.paintInlineImageXObject, pdfjs.OPS.paintImageMaskXObject]);
@@ -121,7 +124,7 @@ async function embeddedImages(zip, el, partRels, fileId, images) {
   for (const id of ids) {
     const path = partRels.find((r) => r.id === id)?.path;
     if (!path || !IMAGE_EXTS.has(extOf(path))) continue;
-    const name = `${fileId}-${path.split('/').pop()}`;
+    const name = imageName(`${fileId}-${path.split('/').pop()}`);
     if (!images.has(name)) {
       const data = await zip.file(path)?.async('uint8array');
       const type = `image/${extOf(path).replace('jpg', 'jpeg')}`;
@@ -301,7 +304,7 @@ export async function buildMarkdown(course, selected, onProgress) {
   const filesById = new Map();
   for (const g of course.groups) for (const it of g.items) if (it.kind === 'file') filesById.set(it.id, it);
   const canvasImage = (f) => {
-    const name = `${f.id}-${safe(f.name).replace(/\s+/g, '_')}`; // no spaces: they break ![](path)
+    const name = imageName(`${f.id}-${f.name}`);
     images.set(name, { url: f.url });
     return `![](images/${name})`;
   };
