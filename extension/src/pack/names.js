@@ -8,11 +8,13 @@ export const extOf = (name) => (name.includes('.') ? name.split('.').pop().toLow
 // Image files are referenced as ![](images/<name>); a name made only of
 // [A-Za-z0-9._-] can't break the link or the reference lookup. When cleaning
 // changes a name, a hash of the original keeps distinct names distinct
-// ("plot+1.png" vs "plot_1.png"). A long name (a picture deep inside a zip)
+// ("plot+1.png" vs "plot_1.png"). Names are lower case, so two pictures whose
+// names differ only in case ("Fig.png", "fig.png") can't overwrite each other
+// on Windows or macOS; the hash keeps them apart. A long name (a picture deep inside a zip)
 // keeps its end, where the file's own name is, within MAX_NAME characters.
 const MAX_NAME = 100;
 export function imageName(original) {
-  const clean = original.replace(/[^\w.-]+/g, '_');
+  const clean = original.replace(/[^\w.-]+/g, '_').toLowerCase();
   if (clean === original && clean.length <= MAX_NAME) return clean;
   let h = 0x811c9dc5; // FNV-1a
   for (const ch of original) h = Math.imul(h ^ ch.codePointAt(0), 0x01000193) >>> 0;
@@ -24,6 +26,24 @@ export function imageName(original) {
 
 // How the Markdown refers to a picture saved as images/<name>.
 export const imageRef = (name) => `![](images/${name})`;
+
+// Paths for one download run: place(dir, name, id) gives a path no other id
+// has, adding " (2)", " (3)"… before the extension as needed, or null when
+// `id` is already saved in that folder. Paths that differ only in case are the
+// same file on Windows and macOS, so they count as taken.
+export function pathAllocator() {
+  const used = new Map(); // lower-cased path → id
+  return (dir, name, id) => {
+    const dot = name.lastIndexOf('.');
+    const [stem, ext] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ''];
+    for (let n = 1; ; n++) {
+      const path = `${dir}/${n === 1 ? name : `${stem} (${n})${ext}`}`;
+      const key = path.toLowerCase();
+      if (!used.has(key)) return used.set(key, id), path;
+      if (used.get(key) === id) return null;
+    }
+  };
+}
 
 // Safe file/folder name for downloads.
 export const safe = (s) => s.replace(/[\\/:*?"<>|~\x00-\x1f]+/g, '_').replace(/^[\s.]+|[\s.]+$/g, '').slice(0, 120) || 'untitled';

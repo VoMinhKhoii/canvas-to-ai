@@ -9,8 +9,10 @@ const utf16 = new TextDecoder('utf-16le');
 async function openStreams(bytes) {
   const XLSX = await import('xlsx');
   const cfb = XLSX.CFB.read(new Uint8Array(bytes), { type: 'array' });
+  // From the root: an embedded object (a chart, another document) has
+  // streams of the same names inside the file's ObjectPool.
   return (name) => {
-    const entry = XLSX.CFB.find(cfb, name);
+    const entry = XLSX.CFB.find(cfb, `/${name}`);
     return entry?.content ? new Uint8Array(entry.content) : null;
   };
 }

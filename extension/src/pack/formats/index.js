@@ -4,7 +4,7 @@
 // text or as a picture; unreadableReason(fileName) says, in a student's
 // words, why not. Heavy libraries (pdf.js, SheetJS, JSZip) load only when a
 // file needs them.
-import { CODE, CODE_NAMES, code, plain, markdown, notebook, subtitles, rtf } from './text.js';
+import { CODE, CODE_NAMES, code, plain, markdown, notebook, subtitles, rtf, calendar } from './text.js';
 import { htmlToMd } from './html-to-md.js';
 import { IMAGE_EXTS, extOf } from '../names.js';
 
@@ -41,7 +41,7 @@ const FORMATS = {
   vtt: text(subtitles), srt: text(subtitles),
   rtf: text(rtf),
   md: text(markdown), markdown: text(markdown), rmd: text(markdown), qmd: text(markdown),
-  txt: text(plain), rst: text(plain), adoc: text(plain), log: text(plain),
+  txt: text(plain), rst: text(plain), adoc: text(plain), log: text(plain), ics: text(calendar),
 };
 for (const [ext, lang] of Object.entries(CODE)) FORMATS[ext] ??= text(code(lang));
 

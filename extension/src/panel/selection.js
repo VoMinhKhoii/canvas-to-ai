@@ -1,7 +1,7 @@
 // Selection over a Course (see CONTEXT.md): folders → sections → items.
 //
 //   const sel = createSelection(course);
-//   sel.toggle(id); sel.state(id) → 'on' | 'off' | 'some'; sel.pickedIn(id); sel.picked(); sel.count();
+//   sel.toggle(id); sel.state(id) → 'on' | 'off' | 'some'; sel.pickedIn(id); sel.picked(); sel.all(); sel.count();
 //
 // Node ids: a folder's id, `${folder.id}#${i}` for its i-th section, and an
 // item's key. Picking a folder or section picks every unlocked item in it;
@@ -47,5 +47,7 @@ export function createSelection(course) {
     // How many pickable items a node holds.
     size: (id) => (under.get(id) ?? []).length,
     picked: () => order.filter(({ item }) => picked.has(item.key)),
+    // Every item, picked or not, in course order.
+    all: () => order,
   };
 }

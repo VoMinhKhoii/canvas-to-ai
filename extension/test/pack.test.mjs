@@ -5,6 +5,7 @@ import { makePdf } from './helpers/pdf.mjs';
 import JSZip from 'jszip';
 
 const { createPackBuilder } = await import('../src/pack/build.js');
+const { scrambled } = await import('../src/pack/formats/pdf.js');
 const { isReadable } = await import('../src/pack/formats/index.js');
 
 // The file seam, in memory: Canvas file details by id, bytes by URL.
@@ -151,4 +152,18 @@ test('the contents list of every zip inside a zip counts toward the length cap',
   const store = { 24: { name: 'lists.zip', bytes: await zipOf(inner) } };
   const { markdown } = await createPackBuilder({ files: fakeFiles(store), pdf }).build(course, zipPick(24));
   assert.ok(markdown.length < 240_000, String(markdown.length)); // one list may overshoot; 20 would be ~600k
+});
+
+test('a PDF page whose font scrambles its text is recognised; ordinary text is not', async () => {
+  // As pdf.js returns it for a font with no glyph-to-letter map (a real course PDF).
+  const page = (str) => ({ items: [{ str }] });
+  assert.ok(scrambled(page('$GYDQFLQJ\u0003WKH\u00033UDFWLFH\u0003:KDW\u0003LV\u00036\\VWHPV\u0003(QJLQHHULQJ')));
+  assert.ok(!scrambled(page('Advancing the Practice: What is Systems Engineering?')));
+  assert.ok(!scrambled(page('x\u0003y'))); // too little text to judge
+});
+
+test('control characters never reach the pack', async () => {
+  const store = { 32: { name: 'notes.txt', bytes: new TextEncoder().encode('tab\there, bell\x07 and \x01junk\x0c').buffer } };
+  const { markdown } = await createPackBuilder({ files: fakeFiles(store), pdf }).build(course, [{ folder: week1, section: lab, item: file('t', 32, 'notes.txt') }]);
+  assert.match(markdown, /tab\there, bell and junk/);
 });

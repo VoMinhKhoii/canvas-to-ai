@@ -23,14 +23,16 @@
       <div id="progress" aria-hidden="true" hidden></div>
       <p id="status" role="status"></p>
       <div class="actions">
-        <button id="copy" class="primary" disabled>Copy for AI</button>
+        <button id="copy" class="primary" disabled>Copy text for AI</button>
         <button id="more" class="icon-button round" aria-label="More" aria-haspopup="menu" aria-expanded="false" disabled>
           <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="3.5" cy="8" r="1.2" /><circle cx="8" cy="8" r="1.2" /><circle cx="12.5" cy="8" r="1.2" /></svg>
         </button>
         <div id="menu" role="menu" hidden>
-          <button role="menuitem" data-action="download">Download the files</button>
-          <button role="menuitem" data-action="save">Save with pictures</button>
-          <button role="menuitem" data-action="clear">Clear picks</button>
+          <button role="menuitem" data-action="picked" data-needs="picks">Download picked</button>
+          <button role="menuitem" data-action="course" data-needs="course">Download the whole course</button>
+          <button role="menuitem" data-action="save" data-needs="picks">Save with pictures</button>
+          <button role="menuitem" data-action="clear" data-needs="picks">Clear picks</button>
+          <button role="menuitem" data-action="terms">AI use and terms</button>
         </div>
       </div>
     </footer>

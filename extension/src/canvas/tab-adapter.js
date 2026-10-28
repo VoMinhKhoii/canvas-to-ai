@@ -23,7 +23,9 @@ export function canvasFiles(canvas) {
       return { name: data.display_name, size: data.size ?? 0, url: data.url ?? '', locked: lockedReason(data, data.locked_for_user || !data.url) };
     },
     async bytes(url) {
-      const res = await fetch(url);
+      const res = await fetch(url).catch(() => {
+        throw new Error("couldn't download it: check your connection and copy again");
+      });
       if (!res.ok) throw new Error(`download failed (${res.status})`);
       return res.arrayBuffer();
     },

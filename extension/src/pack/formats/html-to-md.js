@@ -65,7 +65,7 @@ function tableToMd(table, content, resolveImage) {
       if (cells.length) rows.push(cells.map(cellText));
     }
   }
-  if (Math.max(0, ...rows.map((r) => r.length)) < 2) return `\n\n${content}\n\n`;
+  if (rows.every((r) => r.length < 2)) return `\n\n${content}\n\n`;
   const caption = table.querySelector('caption')?.textContent.replace(/\s+/g, ' ').trim();
   const images = [...table.querySelectorAll('img')].map(resolveImage).filter(Boolean);
   return `\n\n${[caption, mdTable(rows), ...images].filter(Boolean).join('\n\n')}\n\n`;

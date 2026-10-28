@@ -125,7 +125,7 @@ export function createPackBuilder({ files, pdf }) {
     }
     if (skipped.length) parts.push(`## Not included\n${skipped.map((s) => `- ${s.title} (${s.reason})`).join('\n')}`);
     return {
-      markdown: `${codeTags(parts.join('\n\n'))}\n`,
+      markdown: `${codeTags(parts.join('\n\n')).replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '')}\n`, // control characters (scrambled fonts, binary leftovers) mean nothing to an AI
       images: [...assets].map(([name, source]) => ({ name, ...source })),
       skipped,
     };
