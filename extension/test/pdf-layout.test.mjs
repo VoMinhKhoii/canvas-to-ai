@@ -156,3 +156,9 @@ test('nearby superscripts each attach to their own base', () => {
   const [sub] = md(page([t('x', 72, 700), t('1', 78, 696, { size: 8, width: 4 }), t('+y', 82, 700), t('2', 94, 696, { size: 8, width: 4 })]));
   assert.equal(sub, 'x1+y2');
 });
+
+test('stacked subscript and superscript share their base', () => {
+  const eol = { str: '', hasEOL: true, transform: [8, 0, 0, 8, 78, 696], width: 0, fontName: 'sans' };
+  const [out] = md(page([t('x', 72, 700), t('i', 78, 696, { size: 8, width: 3 }), eol, t('j', 78, 706, { size: 8, width: 3 })]));
+  assert.match(out, /^x(ij|ji)$/); // one line; stacked scripts share an x, so their order is arbitrary
+});

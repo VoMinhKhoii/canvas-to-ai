@@ -91,6 +91,9 @@ function toFrags(items, styles) {
 // It must also be short (≤ 3 characters), smaller, raised or lowered within
 // -0.35..+0.6 em of the base, and touch the base's end (E = mc², x₁) or start
 // (¹⁴C). Text on another row or a separately drawn badge never qualifies.
+// Stacked scripts (x_i^j) share a base: a fragment right after another script
+// joins that script's base if it passes the same checks against the base,
+// even across the line break pdf.js puts between the two scripts.
 function linkScripts(words) {
   const isScriptOf = (f, g) => {
     if (f.str.trim().length > 3 || f.size >= g.size * 0.85) return false;
@@ -101,7 +104,8 @@ function linkScripts(words) {
   for (const [i, { f, breakBefore }] of words.entries()) {
     const prev = !breakBefore && words[i - 1]?.f;
     const next = words[i + 1] && !words[i + 1].breakBefore && words[i + 1].f;
-    f.base = [prev, next].find((g) => g && isScriptOf(f, g)) ?? null;
+    const sibling = words[i - 1]?.f.base;
+    f.base = [prev, next, sibling].find((g) => g && isScriptOf(f, g)) ?? null;
   }
 }
 
