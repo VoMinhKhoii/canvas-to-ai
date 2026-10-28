@@ -6,7 +6,7 @@
 //
 // Pure functions (no DOM) so it can be tested in Node.
 
-import { contentHeading, mdTable } from './md.js';
+import { contentHeading, mdTable } from '../md.js';
 
 // Glyphs that are always bullets (incl. Symbol/Wingdings private-use code points).
 const BULLET_GLYPHS = new Set([...'•●▪■➢►▶∙◦○‣⁃', '\uf0a7', '\uf0b7', '\uf0d8', '\uf076', '\uf0fc', '\uf0e0', '\uf06e']);

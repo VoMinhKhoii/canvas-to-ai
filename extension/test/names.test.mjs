@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { imageName } from '../src/names.js';
+import { imageName } from '../src/pack/names.js';
 
 test('safe names are unchanged', () => {
   assert.equal(imageName('56375725-image19.png'), '56375725-image19.png');

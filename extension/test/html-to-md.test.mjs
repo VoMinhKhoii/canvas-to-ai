@@ -1,16 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DOMParser, parseHTML } from 'linkedom';
+import './helpers/dom.mjs';
 
-// The converter runs in the browser; give Node the DOM globals it uses.
-// Browsers wrap an HTML fragment in <html><body>; linkedom needs it spelled out.
-globalThis.DOMParser = class extends DOMParser {
-  parseFromString(html, type) {
-    return super.parseFromString(`<!doctype html><html><body>${html}</body></html>`, type);
-  }
-};
-globalThis.Node = parseHTML('<html></html>').Node;
-const { htmlToMd } = await import('../src/html-to-md.js');
+const { htmlToMd } = await import('../src/pack/formats/html-to-md.js');
 
 test('headings keep literal characters', () => {
   assert.equal(htmlToMd('<h1>__init__ and 2 ** 3</h1>'), '#### __init__ and 2 ** 3');

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mdTable, contentHeading, codeTags } from '../src/md.js';
+import { mdTable, contentHeading, codeTags } from '../src/pack/md.js';
 
 test('table with a pipe inside a cell keeps its column count', () => {
   assert.equal(mdTable([['A | B', 'Result'], ['1', '2']]), '| A \\| B | Result |\n| --- | --- |\n| 1 | 2 |');

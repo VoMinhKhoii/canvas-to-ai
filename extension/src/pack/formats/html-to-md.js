@@ -1,6 +1,6 @@
 // HTML (Canvas pages, announcements, .html files) → compact Markdown.
 import TurndownService from 'turndown';
-import { contentHeading, mdTable } from './md.js';
+import { contentHeading, mdTable } from '../md.js';
 
 const tidy = (s) => s.replace(/\u00a0/g, ' ').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 

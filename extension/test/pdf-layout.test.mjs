@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { pagesToMd } from '../src/pdf-layout.js';
+import { pagesToMd } from '../src/pack/formats/pdf-layout.js';
 
 const styles = { sans: { fontFamily: 'sans-serif' }, mono: { fontFamily: 'monospace' }, serif: { fontFamily: 'serif' } };
 // Text fragment the way pdf.js reports it: transform [size, 0, 0, size, x, y].
