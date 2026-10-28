@@ -24,9 +24,20 @@ npm run build
 3. Open a Canvas course, click the extension icon. The side panel opens and scans.
 
 After code changes: `npm run build`, then click the reload icon on the extension card.
+Tests (PDF layout, HTML conversion, file names): `npm test`.
+
+## How files are converted
+
+- **PDF**: text is regrouped into lines in reading order, with headings (by font
+  size), nested bullets, code blocks, simple tables and joined wrapped lines;
+  running headers/footers and page numbers in the page margins are dropped.
+  Pages that are mostly a picture (diagrams, scans) are rendered as images.
+- **PowerPoint**: slides in order with titles, bullet levels, tables, speaker
+  notes and pictures; footers and logos repeated on every slide are dropped.
+- **Word, HTML, notebooks, code**: headings, lists, tables, code blocks.
 
 ## Not converted yet
 
 - `.zip` and other binary files (listed under "Not included" at the end of the Markdown).
-- Images inside PDFs (PDF text is extracted; slide images come from PPTX only).
-- Scanned PDFs without a text layer.
+- Pictures inside text-heavy PDF pages (only mostly-picture pages are rendered).
+- Two-column slide layouts can interleave the columns' lines.
