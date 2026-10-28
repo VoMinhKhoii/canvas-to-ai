@@ -191,8 +191,10 @@ function bodySize(lines) {
 }
 
 // Bigger than body text and short; long lines ending in ":" or "." are emphasised sentences.
+// A line starting in lower case continues a sentence and is never a heading.
+const startsLower = (text) => /^\p{Ll}/u.test(text);
 const isHeadingLine = (l, body) =>
-  !l.bullet && !l.mono && l.size >= body * 1.1 && l.text.length <= 120 && !(l.text.length > 50 && /[:.]$/.test(l.text));
+  !l.bullet && !l.mono && l.size >= body * 1.1 && l.text.length <= 120 && !(l.text.length > 50 && /[:.]$/.test(l.text)) && !startsLower(l.text);
 
 // Margin lines (digits ignored, so "Page 3 of 9" matches) on more than half the pages.
 function repeatedLines(pageLines) {
@@ -238,10 +240,18 @@ function toBlocks(lines, body, headingSizes) {
     } else if (line.bullet) {
       blocks.push({ kind: 'li', text: line.text, level: Math.min(3, levels.get(Math.round(line.x)) ?? 0), bulletX: line.x });
     } else {
-      // Wrapped continuation of the previous paragraph or bullet, else a new paragraph.
+      // Wrapped continuation of the previous paragraph or bullet, else a new
+      // paragraph. A lower-case line after an unfinished sentence continues it
+      // even across the looser line spacing of slides.
       const sameSize = prev && Math.abs(prev.last.size - line.size) <= 1;
       const indentOk = prev?.kind === 'li' ? line.x > prev.bulletX : true;
-      if ((prev?.kind === 'p' || prev?.kind === 'li') && close && sameSize && indentOk) {
+      const unfinished = prev && startsLower(line.text) && !/[.!?:;]$/.test(prev.text ?? '') && gap <= Math.max(line.size, prev.last.size) * 2.6;
+      const joins = (prev?.kind === 'p' || prev?.kind === 'li') && indentOk && ((close && sameSize) || unfinished);
+      if (joins || (prev?.kind === 'h' && unfinished)) {
+        // A heading's wrapped line at its own size stays in it ("Message-oriented
+        // persistent / asynchronous communication"); a sentence that goes on in
+        // body text means the large line was not a heading.
+        if (prev.kind === 'h' && !sameSize) prev.kind = 'p';
         prev.text = /[a-z]-$/.test(prev.text) ? prev.text + line.text : `${prev.text} ${line.text}`;
       } else {
         blocks.push({ kind: 'p', text: line.text });
@@ -249,6 +259,9 @@ function toBlocks(lines, body, headingSizes) {
     }
     blocks.at(-1).last = line;
   }
+  // Heading lines that merged into a long sentence or a run-on outline are
+  // emphasised text, not headings.
+  for (const b of blocks) if (b.kind === 'h' && (b.text.length > 100 || (b.text.length > 60 && /[.!?]$/.test(b.text)))) b.kind = 'p';
   return blocks;
 }
 

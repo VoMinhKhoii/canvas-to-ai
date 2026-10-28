@@ -65,8 +65,8 @@ async function scan() {
     selected = new Set();
     markdown = null;
     render();
-    const files = [...entries()].filter((e) => e.item.kind === 'file').length;
-    setStatus(`Found ${files} files and ${[...entries()].length - files} pages/announcements.`);
+    const count = (kind) => [...entries()].filter((e) => e.item.kind === kind).length;
+    setStatus(`Found ${count('file')} files, ${count('text')} pages/announcements and ${count('link')} links.`);
   } catch (e) {
     setStatus(e.message);
   } finally {
@@ -99,16 +99,17 @@ function render() {
       const box = Object.assign(document.createElement('input'), { type: 'checkbox' });
       box.dataset.key = `${gi}:${ii}`;
       let meta;
-      if (item.kind === 'text') meta = 'text';
+      if (item.kind === 'text') meta = 'page';
+      else if (item.kind === 'link') meta = 'link';
       else if (item.unavailable) meta = item.unavailable;
       else meta = humanSize(item.size);
       if (!selectable(item)) {
         box.disabled = true;
         row.classList.add('off');
       }
-      const name = span('name', item.kind === 'text' ? item.title : item.name);
+      const name = span('name', item.kind === 'file' ? item.name : item.title);
       name.title = name.textContent;
-      row.append(box, span('icon', item.kind === 'text' ? '📝' : '📄'), name, span('meta', meta));
+      row.append(box, span('icon', { text: '📝', link: '🔗' }[item.kind] ?? '📄'), name, span('meta', meta));
       details.append(row);
     }
     list.append(details);
@@ -178,7 +179,7 @@ $('download').addEventListener('click', async () => {
     });
   }
   const texts = selectedEntries().length - files.length;
-  setStatus(`Started ${files.length} downloads into Downloads/Canvas/.${texts ? ` (${texts} text items are copy-only.)` : ''}`);
+  setStatus(`Started ${files.length} downloads into Downloads/Canvas/.${texts ? ` (${texts} pages and links are copy-only.)` : ''}`);
 });
 
 async function getMarkdown() {

@@ -12,3 +12,25 @@ export function mdTable(rows) {
   const row = (cells) => `| ${[...cells, ...Array(width - cells.length).fill('')].map((c) => c.replace(/\|/g, '\\|')).join(' | ')} |`;
   return [rows[0], Array(width).fill('---'), ...rows.slice(1)].map(row).join('\n');
 }
+
+// Outside code, text such as "<header>" or "List<Employee>" is read as an HTML
+// tag by Markdown viewers and vanishes ("New elements like , , and ."). Wrap
+// it in backticks; fenced blocks and inline code are left alone.
+const TAG = /<\/?[A-Za-z][\w:-]*(?:\s[^<>]*)?\/?>/g;
+export function codeTags(md) {
+  let fenced = false;
+  return md
+    .split('\n')
+    .map((line) => {
+      if (/^\s*```/.test(line)) {
+        fenced = !fenced;
+        return line;
+      }
+      if (fenced) return line;
+      return line
+        .split(/(`+[^`]*`+)/)
+        .map((part, i) => (i % 2 ? part : part.replace(TAG, (tag) => `\`${tag}\``)))
+        .join('');
+    })
+    .join('\n');
+}

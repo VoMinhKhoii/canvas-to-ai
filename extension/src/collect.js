@@ -57,9 +57,21 @@ export async function collectCourse(courseId) {
     return files.get(id);
   }
 
+  // Files a page links to (attachments, links, embeds) are items of their own.
+  // Pictures it only displays (<img>) belong to the page: they are kept aside
+  // so the page's Markdown can show them, but are not listed as separate files.
+  const pageImageIds = new Set();
   function filesIn(html, attachments) {
-    const ids = [...(attachments || []).map((a) => a.id), ...[...(html || '').matchAll(/\/files\/(\d+)/g)].map((m) => +m[1])];
-    return Promise.all([...new Set(ids)].map(file));
+    const linked = new Set((attachments || []).map((a) => a.id));
+    const doc = new DOMParser().parseFromString(html || '', 'text/html');
+    for (const el of doc.querySelectorAll('[href*="/files/"], [src*="/files/"], [data-api-endpoint*="/files/"]')) {
+      const ref = el.getAttribute('src') || el.getAttribute('href') || el.getAttribute('data-api-endpoint');
+      const id = Number(/\/files\/(\d+)/.exec(ref)?.[1]);
+      if (!id) continue;
+      if (el.tagName === 'IMG') pageImageIds.add(id);
+      else linked.add(id);
+    }
+    return Promise.all([...linked].map(file));
   }
 
   async function textWithFiles(title, html, attachments) {
@@ -83,6 +95,8 @@ export async function collectCourse(courseId) {
       const items = await Promise.all(
         moduleItems.map(async (it) => {
           if (it.type === 'File') return [await file(it.content_id)];
+          if (it.type === 'ExternalUrl') return [{ kind: 'link', title: it.title, url: it.external_url }];
+          if (it.type === 'ExternalTool') return [{ kind: 'link', title: it.title, url: it.html_url }];
           if (!['Page', 'Assignment', 'Discussion'].includes(it.type) || !it.url) return [];
           try {
             const { data } = await get(it.url);
@@ -109,5 +123,7 @@ export async function collectCourse(courseId) {
     { title: 'Announcements', items: dedupe(announcementItems.flat()) },
     { title: 'Syllabus', items: await textWithFiles('Syllabus', course.syllabus_body) },
   ];
-  return { courseName: course.name, groups: groups.filter((g) => g.items.length) };
+  const listed = new Set(groups.flatMap((g) => g.items.filter((it) => it.kind === 'file').map((it) => it.id)));
+  const pageImages = await Promise.all([...pageImageIds].filter((id) => !listed.has(id)).map(file));
+  return { courseName: course.name, groups: groups.filter((g) => g.items.length), pageImages };
 }

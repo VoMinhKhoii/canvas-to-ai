@@ -5,6 +5,7 @@ import { pagesToMd } from './pdf-layout.js';
 import { htmlToMd } from './html-to-md.js';
 import { pptxToMd, docxToMd } from './ooxml.js';
 import { IMAGE_EXTS, MIN_IMAGE_BYTES, extOf, imageName } from './names.js';
+import { codeTags } from './md.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('pdf.worker.min.mjs');
 
@@ -130,6 +131,7 @@ export async function buildMarkdown(course, selected, onProgress) {
 
   const filesById = new Map();
   for (const g of course.groups) for (const it of g.items) if (it.kind === 'file') filesById.set(it.id, it);
+  for (const f of course.pageImages ?? []) filesById.set(f.id, f);
   const canvasImage = (f) => {
     const name = imageName(`${f.id}-${f.name}`);
     images.set(name, { url: f.url });
@@ -150,6 +152,10 @@ export async function buildMarkdown(course, selected, onProgress) {
     }
     if (item.kind === 'text') {
       parts.push(`### ${item.title}\n${htmlToMd(item.html, pageImage)}`);
+      continue;
+    }
+    if (item.kind === 'link') {
+      parts.push(`### ${item.title}\nLink: ${item.url}`);
       continue;
     }
     if (seen.has(item.id)) {
@@ -173,7 +179,7 @@ export async function buildMarkdown(course, selected, onProgress) {
     }
   }
   if (skipped.length) parts.push(`## Not included\n${skipped.join('\n')}`);
-  const md = parts.join('\n\n') + '\n';
+  const md = codeTags(parts.join('\n\n')) + '\n';
   return {
     md,
     skipped: skipped.length,

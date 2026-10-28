@@ -110,18 +110,26 @@ function slideText(slide) {
   return { title, body };
 }
 
-// Relationship ids of pictures under 10% of the slide, or used as fills: may be logos.
-function smallPictureIds(slide, slideArea) {
-  const small = new Set();
+// Share of the slide each picture covers, by relationship id (the largest
+// placement wins). Pictures used as fills or backgrounds are not placed: 0.
+function pictureAreas(slide, slideArea) {
+  const areas = new Map();
   for (const blip of slide.getElementsByTagName('a:blip')) {
     let pic = blip;
     while (pic && pic.tagName !== 'p:pic') pic = pic.parentNode;
     const ext = pic?.getElementsByTagName('a:xfrm')[0]?.getElementsByTagName('a:ext')[0];
     const area = ext ? (Number(ext.getAttribute('cx')) * Number(ext.getAttribute('cy'))) / slideArea : 0;
-    if (area < 0.1) small.add(blip.getAttribute('r:embed'));
+    const id = blip.getAttribute('r:embed');
+    areas.set(id, Math.max(areas.get(id) ?? 0, area));
   }
-  return small;
+  return areas;
 }
+
+// A placed picture under 1% of the slide (about 0.7 inch square) is an icon
+// or a bullet: on its own it tells the AI nothing and costs an image.
+const ICON_AREA = 0.01;
+// Pictures under 10% of the slide, or used as fills, may be template logos.
+const SMALL_AREA = 0.1;
 
 async function slideNotes(zip, slideRels) {
   const notesPath = slideRels.find((r) => r.type.endsWith('/notesSlide'))?.path;
@@ -136,8 +144,10 @@ async function readSlide(zip, path, slideArea, fileId, images) {
   const slide = await readXml(zip, path);
   if (slide.documentElement.getAttribute('show') === '0') return null;
   const slideRels = await rels(zip, path);
-  const small = smallPictureIds(slide, slideArea);
-  const pictures = (await embeddedImages(zip, slide, slideRels, fileId, images)).map((img) => ({ md: img.md, template: small.has(img.id) }));
+  const areas = pictureAreas(slide, slideArea);
+  const pictures = (await embeddedImages(zip, slide, slideRels, fileId, images))
+    .filter((img) => !(areas.get(img.id) > 0 && areas.get(img.id) < ICON_AREA))
+    .map((img) => ({ md: img.md, template: (areas.get(img.id) ?? 0) < SMALL_AREA }));
   return { ...slideText(slide), pictures, notes: await slideNotes(zip, slideRels) };
 }
 
