@@ -176,8 +176,8 @@ test('epub: chapters in spine order, with their pictures', async () => {
   zip.file('OEBPS/ch2.xhtml', '<html><body><h1>Chapter 2</h1><p>Trade-offs.</p></body></html>');
   zip.file('OEBPS/images/fig.png', picture(20_000));
   const { md, assets } = await convert('book.epub', await bytesOf(zip));
-  assert.equal(md, '#### Chapter 1\n\nDesign is choices.\n\n![](images/1-OEBPS_images_fig-y4zeqd.png)\n\n#### Chapter 2\n\nTrade-offs.');
-  assert.deepEqual([...assets.keys()], ['1-OEBPS_images_fig-y4zeqd.png']);
+  assert.equal(md, '#### Chapter 1\n\nDesign is choices.\n\n![](images/1-oebps_images_fig-y4zeqd.png)\n\n#### Chapter 2\n\nTrade-offs.');
+  assert.deepEqual([...assets.keys()], ['1-oebps_images_fig-y4zeqd.png']);
 });
 
 // ---------- archives ----------
@@ -254,6 +254,15 @@ test('Arduino sketches, systemd units and calendars are read as text', async () 
     'END:VEVENT', 'END:VCALENDAR',
   ].join('\r\n');
   assert.equal((await convert('class.ics', invite)).md, '#### OENG1272 Lecture, week 2\n2024-03-05 09:00 to 2024-03-05 11:00\nWhere: Microsoft Teams Meeting\nOnline Lecture via TEAMS\nClick here to join');
+});
+
+test('calendar values: colons inside quoted parameters, escaped backslashes', async () => {
+  const ics = ['BEGIN:VEVENT', 'SUMMARY:Lab', 'DESCRIPTION;ALTREP="cid:part1.0001@example.org":Open C:\\\\notes\\\\new.txt\\nthen run it', 'END:VEVENT'].join('\n');
+  assert.equal((await convert('lab.ics', ics)).md, '#### Lab\nOpen C:\\notes\\new.txt\nthen run it');
+});
+
+test('rtf: an escaped backslash does not start another escape; escaped braces stay', async () => {
+  assert.equal((await convert('a.rtf', '{\\rtf1 C:\\\\par\\\\x \\{set\\}\\par next}')).md, 'C:\\par\\x {set}\nnext');
 });
 
 test('a CSV of hundreds of thousands of rows shows the first 500 and says how many more', async () => {

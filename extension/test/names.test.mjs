@@ -37,3 +37,12 @@ test('one download run never gives two different things the same path', async ()
   assert.equal(place('W1', 'README', 'file:9'), 'W1/README');
   assert.equal(place('W1', 'README', 'file:8'), 'W1/README (2)');
 });
+
+test('names that differ only in case are one file on Windows and macOS: both survive', () => {
+  const place = pathAllocator();
+  assert.equal(place('W1', 'Lecture.md', 'page:a'), 'W1/Lecture.md');
+  assert.equal(place('W1', 'lecture.md', 'file:1'), 'W1/lecture (2).md');
+  const [a, b] = [imageName('7-Fig.png'), imageName('7-fig.png')];
+  assert.notEqual(a.toLowerCase(), b.toLowerCase());
+  assert.equal(a, a.toLowerCase());
+});

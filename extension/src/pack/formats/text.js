@@ -85,8 +85,9 @@ export function calendar(text) {
     } else if (end) {
       if (open.pop() === 'VEVENT' && event) events.push(event), (event = null);
     } else if (event && open.at(-1) === 'VEVENT') { // not a reminder's (VALARM) own description
-      const m = /^([A-Z-]+)(?:;[^:]*)?:(.*)$/.exec(line);
-      if (m) event[m[1]] ??= m[2].replace(/\\n/gi, '\n').replace(/\\([,;\\])/g, '$1').trim();
+      // NAME;PARAM=…;PARAM="…":value — a quoted parameter may hold colons.
+      const m = /^([A-Z-]+)((?:;(?:"[^"]*"|[^";:])*)*):(.*)$/.exec(line);
+      if (m) event[m[1]] ??= m[3].replace(/\\([nN,;\\])/g, (_, c) => (c === 'n' || c === 'N' ? '\n' : c)).trim(); // one pass: "\\n" is a backslash and an n
     }
   }
   const when = (v) => v?.replace(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})\d*(Z?))?$/, (_, y, mo, d, h, mi, z) => `${y}-${mo}-${d}${h ? ` ${h}:${mi}${z ? ' UTC' : ''}` : ''}`);
@@ -116,14 +117,15 @@ export function rtf(text) {
     }
   }
   const win1252 = new TextDecoder('windows-1252');
-  s = s
-    .replace(/\\'([0-9a-f]{2})/gi, (_, h) => win1252.decode(new Uint8Array([parseInt(h, 16)])))
-    .replace(/\\u(-?\d+)\??/g, (_, n) => String.fromCharCode(Number(n) < 0 ? Number(n) + 65536 : Number(n)))
-    .replace(/\\(par|line)\b ?/g, '\n')
-    .replace(/\\tab\b ?/g, '\t')
-    .replace(/\\[a-z]+-?\d* ?/gi, '')
-    .replace(/\\([{}\\])/g, '$1')
-    .replace(/[{}]/g, '');
+  // Escapes and group braces in one left-to-right pass, so an escaped
+  // backslash ("\\") is never read as the start of another escape ("\\par" is
+  // a backslash and "par") and escaped braces stay.
+  s = s.replace(/\\(?:'([0-9a-f]{2})|u(-?\d+)\??|([{}\\])|([a-z]+)-?\d* ?)|[{}]/gi, (_, hex, uni, char, word) => {
+    if (hex) return win1252.decode(new Uint8Array([parseInt(hex, 16)]));
+    if (uni) return String.fromCharCode(Number(uni) < 0 ? Number(uni) + 65536 : Number(uni));
+    if (char) return char;
+    return word === 'par' || word === 'line' ? '\n' : word === 'tab' ? '\t' : ''; // other control words and bare braces
+  });
   const md = s.split('\n').map((l) => l.trim()).join('\n').replace(/\n{3,}/g, '\n\n').trim();
   return { md, assets: none() };
 }
