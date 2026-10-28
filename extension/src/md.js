@@ -4,8 +4,10 @@
 // inside a file start one level below it: level 1 → "####", capped at "######".
 export const contentHeading = (level, text) => `${'#'.repeat(Math.min(6, level + 3))} ${text}`;
 
-// rows: arrays of cell strings; the first row is the header.
+// rows: arrays of cell strings; the first row is the header. Pipes inside
+// cells are escaped so every row keeps its column count.
 export function mdTable(rows) {
   const width = Math.max(...rows.map((r) => r.length));
-  return [rows[0], Array(width).fill('---'), ...rows.slice(1)].map((r) => `| ${r.join(' | ')} |`).join('\n');
+  const row = (cells) => `| ${cells.map((c) => c.replace(/\|/g, '\\|')).join(' | ')} |`;
+  return [rows[0], Array(width).fill('---'), ...rows.slice(1)].map(row).join('\n');
 }
