@@ -74,34 +74,53 @@ function toFrags(items, styles) {
     .sort((a, b) => b.y - a.y || a.x - b.x);
 }
 
-// A fragment joins the current line by baseline distance to the line's anchor:
-// similar sizes within half a line; a much smaller fragment on the same
-// baseline (small caps, mixed sizes) always; a raised or lowered one only as a
-// short (≤ 3 characters) superscript/subscript within -0.35..+0.6 em, so a word
-// beside a big badge glyph is not a "script". Font boxes overstate glyph
-// height, so extents are not compared.
+// Two fragments of a text line: similar sizes within half a line, or any sizes
+// on the same baseline (small caps, mixed fonts). Font boxes overstate glyph
+// height, so extents are not compared. Superscripts/subscripts are handled
+// separately (scriptBase), so no rule here lets a fragment be offset from the
+// line, and a line's anchor never moves: nothing can bridge two rows.
 function sameLine(a, b) {
   const [big, small] = a.size >= b.size ? [a, b] : [b, a];
   const d = small.y - big.y;
   if (small.size >= big.size * 0.85) return Math.abs(d) < small.size * 0.5;
-  if (Math.abs(d) < small.size * 0.25) return true;
-  return small.str.trim().length <= 3 && d > -big.size * 0.35 && d < big.size * 0.6;
+  return Math.abs(d) < small.size * 0.25;
 }
 
-// Fragments → arrays of fragments, one per line.
+// The text a fragment is a superscript/subscript of, or null. Needs all of:
+// short (≤ 3 characters), smaller, raised or lowered within -0.35..+0.6 em,
+// and starting within 1 em after the start of that text (E = mc², x₁).
+function scriptBase(f, frags) {
+  if (f.str.trim().length > 3) return null;
+  return (
+    frags.find((g) => {
+      if (g === f || !g.str.trim() || f.size >= g.size * 0.85) return false;
+      const d = f.y - g.y;
+      return d > -g.size * 0.35 && d < g.size * 0.6 && f.x >= g.x && f.x <= g.x + g.w + g.size;
+    }) ?? null
+  );
+}
+
+// Fragments → arrays of fragments, one per line. Scripts are set aside, lines
+// are formed from the rest, then each script joins its base text's line.
 function groupByBaseline(frags) {
-  const lines = [];
+  const base = new Map();
   for (const f of frags) {
+    const g = scriptBase(f, frags);
+    if (g) base.set(f, g);
+  }
+  const lines = [];
+  const lineOf = new Map();
+  for (const f of frags) {
+    if (base.has(f)) continue;
     const line = lines.at(-1);
-    if (line && sameLine(line.anchor, f)) {
-      line.frags.push(f);
-      // A line that began with a superscript re-anchors on the main text, so a
-      // later subscript is measured from the real baseline. Only a script
-      // anchor moves; a same-size or bigger glyph can't bridge two rows.
-      if (line.anchor.size < f.size * 0.85) line.anchor = f;
-    } else {
-      lines.push({ anchor: f, frags: [f] });
-    }
+    if (line && sameLine(line.anchor, f)) line.frags.push(f);
+    else lines.push({ anchor: f, frags: [f] });
+    lineOf.set(f, lines.at(-1));
+  }
+  for (const [f, g] of base) {
+    let root = g;
+    while (base.has(root)) root = base.get(root); // script of a script; sizes strictly shrink, so this ends
+    lineOf.get(root).frags.push(f);
   }
   return lines.map((l) => l.frags.sort((a, b) => a.x - b.x));
 }

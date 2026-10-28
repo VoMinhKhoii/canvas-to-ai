@@ -124,3 +124,13 @@ test('small caps on one baseline stay one line', () => {
   const [out] = md(page([t('C', 72, 700, { size: 12, width: 8 }), t('REATE A', 80, 700, { size: 9.6 })]));
   assert.equal(out, 'CREATE A');
 });
+
+test('a short upper label next to a distant badge does not bridge rows', () => {
+  const [out] = md(page([
+    t('CPU', 123, 385, { size: 20 }),
+    t('1', 602, 365.8, { size: 36 }),
+    t('Controller', 121, 361, { size: 20 }),
+    t('A long paragraph of body text so that the body size is twenty points.', 36, 200, { size: 20 }),
+  ], 540));
+  assert.ok(!/Controller.*CPU|CPU.*Controller/.test(out), out);
+});
