@@ -101,4 +101,17 @@ export function pickedLine(sel) {
   return `<b>${picked.length} picked</b> from ${esc(where)}`;
 }
 
+// Shown once before the panel reads anything, and again from ⋯ › AI use and terms.
+export const termsCard = (button) => `<section class="card terms">
+    <h2>Before you start</h2>
+    <ul>
+      <li>Course materials belong to your school and your lecturers. Use them for your own study, and don't share them publicly.</li>
+      <li>Some courses and assessments don't allow AI tools. Check each course's rules before you paste anything into an AI chat.</li>
+      <li>Canvas to AI reads your course on this computer and sends nothing anywhere. What you paste into ChatGPT, Claude or Gemini goes to that company, under its terms: check whether it uses your chats for training.</li>
+      <li><b>Copy text for AI</b> copies text only. Pictures need <b>⋯ › Save with pictures</b>.</li>
+      <li>Canvas to AI isn't made or endorsed by Instructure or your school.</li>
+    </ul>
+    <button class="primary" id="agree">${esc(button)}</button>
+  </section>`;
+
 export const loadingCards = () => Array.from({ length: 5 }, () => '<div class="card ghost"><span></span><span></span></div>').join('');

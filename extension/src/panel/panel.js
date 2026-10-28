@@ -1,14 +1,18 @@
 // The side panel: finds the Canvas course tab, scans the course, keeps the
-// selection, and runs Copy for AI, Download and Save with pictures.
+// selection, and runs Copy text for AI, Download and Save with pictures.
 import { scanCourse } from '../canvas/scan.js';
 import { tabCanvas, canvasFiles } from '../canvas/tab-adapter.js';
 import { createPackBuilder } from '../pack/build.js';
 import { safe } from '../pack/names.js';
 import { createSelection } from './selection.js';
-import { folderCards, folderCard, pickedLine, loadingCards, folderName } from './view.js';
+import { htmlToMd } from '../pack/formats/html-to-md.js';
+import { folderCards, folderCard, pickedLine, loadingCards, termsCard } from './view.js';
 
 const $ = (id) => document.getElementById(id);
 const COURSE_URL = /^https:\/\/[^/]+\.instructure\.com\/courses\/(\d+)/;
+const COPY_LABEL = 'Copy text for AI';
+const TERMS_KEY = 'canvas-to-ai:terms'; // the version of the terms the student agreed to
+const TERMS_VERSION = '1';
 
 // pdf.js and a canvas to render picture pages, loaded on the first PDF.
 const pdf = {
@@ -85,14 +89,15 @@ function redraw(folderId) {
 function updateBar() {
   const n = state.sel?.count() ?? 0;
   $('copy').disabled = state.busy || !n;
-  $('more').disabled = state.busy || !n;
+  $('more').disabled = state.busy;
+  for (const item of $('menu').querySelectorAll('[data-needs]')) item.disabled = item.dataset.needs === 'picks' ? !n : !state.course;
   if (!state.busy) setStatus(state.sel ? pickedLine(state.sel) : '');
 }
 
 // A new selection needs a new pack ("Click to copy" was for the old one).
 function forgetPack() {
   state.pack = null;
-  $('copy').textContent = 'Copy for AI';
+  $('copy').textContent = COPY_LABEL;
 }
 
 $('folders').addEventListener('click', (e) => {
@@ -157,8 +162,9 @@ async function writeClipboard(text) {
 }
 
 function afterCopyLine(pack) {
-  const lines = ['Copied. Paste it into ChatGPT, Claude or Gemini.'];
-  if (pack.images.length) lines.push(`${pack.images.length} ${pack.images.length === 1 ? 'picture needs' : 'pictures need'} <b>⋯ › Save with pictures</b>.`);
+  const n = pack.images.length;
+  const lines = [n ? 'Copied the text. Paste it into ChatGPT, Claude or Gemini.' : 'Copied. Paste it into ChatGPT, Claude or Gemini.'];
+  if (n) lines.push(`${n} ${n === 1 ? "picture isn't" : "pictures aren't"} in it: to send ${n === 1 ? 'it' : 'them'} too, use <b>⋯ › Save with pictures</b>.`);
   if (pack.skipped.length) lines.push(`${pack.skipped.length} left out (the end of the text says why).`);
   // About 4 characters a token, 650 tokens a page. Past ~120k tokens most AI
   // chats cut the text off or answer from only part of it.
@@ -173,7 +179,7 @@ $('copy').addEventListener('click', async () => {
     if (await writeClipboard(pack.markdown)) {
       $('copy').textContent = 'Copied';
       setStatus(afterCopyLine(pack), 'done');
-      setTimeout(() => ($('copy').textContent = 'Copy for AI'), 2500);
+      setTimeout(() => ($('copy').textContent = COPY_LABEL), 2500);
     } else {
       $('copy').textContent = 'Click to copy';
       setStatus('Ready. Click once more to copy.');
@@ -195,29 +201,52 @@ $('more').addEventListener('click', () => {
 });
 document.addEventListener('click', (e) => !e.target.closest('#menu, #more') && closeMenu());
 
-const folderPath = (course, folder) => `Canvas/${safe(course.name)}/${String(course.folders.indexOf(folder) + 1).padStart(2, '0')} ${safe(folderName(folder.title).name)}`;
+// Downloads keep the course's tree as Canvas shows it:
+// Canvas/<course>/<NN module>/<section>/<file>, pages as Markdown beside the files.
+const folderDir = (course, folder) => `Canvas/${safe(course.name)}/${String(course.folders.indexOf(folder) + 1).padStart(2, '0')} ${safe(folder.title.replace(/\s*\/\s*/g, ' - '))}`; // "Week 1/Topic 1" → "Week 1 - Topic 1"
 const download = (url, filename) => chrome.downloads.download({ url, filename, conflictAction: 'overwrite', saveAs: false });
 
-// The ⋯ menu's actions. A scan can start while one runs: each keeps the
-// course it began with.
-async function downloadFiles({ course, packs, sel }) {
-  const files = sel.picked().filter(({ item }) => item.kind === 'file' && !item.locked);
-  let started = 0;
-  for (const { folder, item } of files) {
-    const info = await packs.meta(item.id);
-    if (info.locked) continue;
-    await download(info.url, `${folderPath(course, folder)}/${safe(info.name)}`);
-    started++;
+async function downloadTree(course, packs, entries) {
+  const wanted = entries.filter(({ item }) => !item.locked && (item.kind === 'file' || (item.kind === 'page' && item.html)));
+  const used = new Map(); // path → file id: a different file with the same name gets its id added
+  let files = 0;
+  let pages = 0;
+  let locked = 0;
+  for (const [n, { folder, section, item }] of wanted.entries()) {
+    setStatus(`Downloading ${n + 1} of ${wanted.length}…`);
+    const dir = [folderDir(course, folder), section.title && safe(section.title)].filter(Boolean).join('/');
+    if (item.kind === 'page') {
+      const md = `# ${item.title}\n\n${htmlToMd(item.html)}\n`;
+      await download(URL.createObjectURL(new Blob([md], { type: 'text/markdown' })), `${dir}/${safe(item.title)}.md`);
+      pages++;
+      continue;
+    }
+    const info = await packs.meta(item.id).catch(() => null);
+    if (!info?.url || info.locked) {
+      locked++;
+      continue;
+    }
+    let path = `${dir}/${safe(info.name)}`;
+    if (used.has(path) && used.get(path) !== item.id) path = path.replace(/(\.[^./]*)?$/, ` (${item.id})$1`);
+    if (used.get(path) === item.id) continue; // the same file twice in one folder
+    used.set(path, item.id);
+    await download(info.url, path);
+    files++;
   }
-  const rest = sel.count() - files.length;
-  const locked = files.length - started;
+  const skipped = entries.length - wanted.length;
   setStatus(
-    `Downloading ${started} files to Downloads › Canvas.` +
-      (rest ? ` Pages and links aren't files, so ${rest} ${rest === 1 ? 'was' : 'were'} skipped.` : '') +
-      (locked ? ` ${locked} ${locked === 1 ? 'is' : 'are'} locked.` : ''),
+    `Downloading ${files} ${files === 1 ? 'file' : 'files'}${pages ? ` and ${pages} ${pages === 1 ? 'page' : 'pages'}` : ''} to Downloads › Canvas › ${safe(course.name)}.` +
+      (locked ? ` ${locked} ${locked === 1 ? 'is' : 'are'} locked.` : '') +
+      (skipped ? ` ${skipped} ${skipped === 1 ? 'link or locked item was' : 'links or locked items were'} skipped.` : ''),
     'done',
   );
 }
+
+// The ⋯ menu's actions. A scan can start while one runs: each keeps the
+// course it began with.
+const downloadPicked = ({ course, packs, sel }) => downloadTree(course, packs, sel.picked());
+const downloadCourse = ({ course, packs }) =>
+  downloadTree(course, packs, course.folders.flatMap((folder) => folder.sections.flatMap((section) => section.items.map((item) => ({ folder, section, item })))));
 
 async function saveWithPictures({ course }) {
   const pack = await currentPack();
@@ -234,7 +263,11 @@ function clearPicks({ course, sel }) {
   updateBar();
 }
 
-const ACTIONS = { download: downloadFiles, save: saveWithPictures, clear: clearPicks };
+function showTerms() {
+  $('folders').innerHTML = termsCard(state.course ? 'Back to the course' : 'I understand');
+}
+
+const ACTIONS = { picked: downloadPicked, course: downloadCourse, save: saveWithPictures, clear: clearPicks, terms: showTerms };
 menu.addEventListener('click', async (e) => {
   const action = ACTIONS[e.target.closest('[data-action]')?.dataset.action];
   if (!action) return;
@@ -246,5 +279,20 @@ menu.addEventListener('click', async (e) => {
   }
 });
 
+// The terms card's button: agree once, then show (or scan) the course.
+$('folders').addEventListener('click', (e) => {
+  if (e.target.id !== 'agree') return;
+  try {
+    localStorage.setItem(TERMS_KEY, TERMS_VERSION);
+  } catch {}
+  if (state.course) $('folders').innerHTML = folderCards(state.course, state.sel, state.open);
+  else scan();
+});
+
 $('rescan').addEventListener('click', scan);
-scan();
+let agreed = false;
+try {
+  agreed = localStorage.getItem(TERMS_KEY) === TERMS_VERSION;
+} catch {}
+if (agreed) scan();
+else showTerms();
