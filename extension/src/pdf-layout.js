@@ -30,7 +30,8 @@ const looksLikeCode = (t) => /[{}]$/.test(t) || (/;$/.test(t) && /[=(.]/.test(t)
 
 const BULLET_PREFIX = /^[•●▪■➢►▶∙◦○‣⁃]\s*/;
 
-// pages: [{ items, styles, height }]: page.getTextContent() plus the page height.
+// pages: [{ items, styles, view }]: page.getTextContent() plus page.view, the
+// visible page box [x0, y0, x1, y1] that text coordinates are measured in.
 // Returns per page { md, bodyChars }: bodyChars counts non-heading text (low =
 // the page is mostly a picture).
 export function pagesToMd(pages) {
@@ -38,7 +39,7 @@ export function pagesToMd(pages) {
   const all = pageLines.flat();
   const body = bodySize(all);
   const headingSizes = [...new Set(all.filter((l) => isHeadingLine(l, body)).map((l) => round(l.size)))].sort((a, b) => b - a);
-  const margins = pageLines.map((lines, i) => lines.filter((l) => inMargin(l, pages[i].height, body)));
+  const margins = pageLines.map((lines, i) => lines.filter((l) => inMargin(l, pages[i].view, body)));
   const repeated = repeatedLines(margins);
 
   return pageLines.map((lines, i) => {
@@ -51,8 +52,12 @@ export function pagesToMd(pages) {
 }
 
 // Running headers, footers and page numbers live in the top/bottom 8% of the
-// page at body size or smaller; only those lines may be dropped.
-const inMargin = (l, height, body) => height > 0 && l.size <= body && (l.y > height * 0.92 || l.y < height * 0.08);
+// visible page at body size or smaller; only those lines may be dropped.
+function inMargin(l, [, bottom, , top], body) {
+  const height = top - bottom;
+  const y = l.y - bottom; // the page box need not start at y = 0
+  return height > 0 && l.size <= body && (y > height * 0.92 || y < height * 0.08);
+}
 
 const round = (n) => Math.round(n * 2) / 2;
 const key = (text) => text.replace(/\d+/g, '#');
@@ -69,16 +74,18 @@ function toFrags(items, styles) {
     .sort((a, b) => b.y - a.y || a.x - b.x);
 }
 
-// A fragment joins the current line by baseline distance to the fragment that
-// started the line (never a later one, so a big glyph can't bridge two rows):
-// similar sizes within half a line; a much smaller fragment only as a
-// superscript/subscript (baseline within -0.35..+0.6 em of the big one). Font
-// boxes overstate glyph height, so extents are not compared.
+// A fragment joins the current line by baseline distance to the line's anchor:
+// similar sizes within half a line; a much smaller fragment on the same
+// baseline (small caps, mixed sizes) always; a raised or lowered one only as a
+// short (≤ 3 characters) superscript/subscript within -0.35..+0.6 em, so a word
+// beside a big badge glyph is not a "script". Font boxes overstate glyph
+// height, so extents are not compared.
 function sameLine(a, b) {
   const [big, small] = a.size >= b.size ? [a, b] : [b, a];
   const d = small.y - big.y;
   if (small.size >= big.size * 0.85) return Math.abs(d) < small.size * 0.5;
-  return d > -big.size * 0.35 && d < big.size * 0.6;
+  if (Math.abs(d) < small.size * 0.25) return true;
+  return small.str.trim().length <= 3 && d > -big.size * 0.35 && d < big.size * 0.6;
 }
 
 // Fragments → arrays of fragments, one per line.
@@ -86,8 +93,15 @@ function groupByBaseline(frags) {
   const lines = [];
   for (const f of frags) {
     const line = lines.at(-1);
-    if (line && sameLine(line.first, f)) line.frags.push(f);
-    else lines.push({ first: f, frags: [f] });
+    if (line && sameLine(line.anchor, f)) {
+      line.frags.push(f);
+      // A line that began with a superscript re-anchors on the main text, so a
+      // later subscript is measured from the real baseline. Only a script
+      // anchor moves; a same-size or bigger glyph can't bridge two rows.
+      if (line.anchor.size < f.size * 0.85) line.anchor = f;
+    } else {
+      lines.push({ anchor: f, frags: [f] });
+    }
   }
   return lines.map((l) => l.frags.sort((a, b) => a.x - b.x));
 }

@@ -55,7 +55,7 @@ async function pdfToMd(buf, fileId, images) {
   const contents = [];
   for (let i = 1; i <= doc.numPages; i++) {
     const page = await doc.getPage(i);
-    contents.push({ ...(await page.getTextContent()), height: page.view[3] - page.view[1] });
+    contents.push({ ...(await page.getTextContent()), view: page.view });
   }
 
   const out = [];

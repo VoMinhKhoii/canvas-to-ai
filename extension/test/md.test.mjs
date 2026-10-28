@@ -6,8 +6,8 @@ test('table with a pipe inside a cell keeps its column count', () => {
   assert.equal(mdTable([['A | B', 'Result'], ['1', '2']]), '| A \\| B | Result |\n| --- | --- |\n| 1 | 2 |');
 });
 
-test('ragged rows get a separator as wide as the widest row', () => {
-  assert.equal(mdTable([['a'], ['b', 'c']]), '| a |\n| --- | --- |\n| b | c |');
+test('ragged rows are padded so the header matches the separator', () => {
+  assert.equal(mdTable([['a'], ['b', 'c']]), '| a |  |\n| --- | --- |\n| b | c |');
 });
 
 test('content headings sit below the ### file heading, capped at ######', () => {

@@ -7,7 +7,7 @@ const styles = { sans: { fontFamily: 'sans-serif' }, mono: { fontFamily: 'monosp
 const t = (str, x, y, { size = 12, font = 'sans', width = str.length * size * 0.5 } = {}) => ({
   str, transform: [size, 0, 0, size, x, y], width, fontName: font,
 });
-const page = (items, height = 792) => ({ items, styles, height });
+const page = (items, height = 792, bottom = 0) => ({ items, styles, view: [0, bottom, 612, bottom + height] });
 const md = (...pages) => pagesToMd(pages).map((p) => p.md);
 
 test('superscript stays on its line', () => {
@@ -98,4 +98,29 @@ test('staggered diagram labels do not chain into one line', () => {
 test('small footer above a big title stays a separate line', () => {
   const [out] = md(page([t('RMIT Classification: Trusted', 424, 526, { size: 10 }), t('We want the Product details', 36, 502, { size: 36 }), t('Body text here that is long enough to set the body size', 36, 400, { size: 20 })], 540));
   assert.ok(!out.includes('detailsRMIT') && !out.includes('details RMIT'), out);
+});
+
+test('superscript and subscript on one line both stay on it', () => {
+  const [out] = md(page([t('x', 72, 700), t('2', 78, 706, { size: 8 }), t('+ y', 86, 700), t('1', 106, 697, { size: 8 })]));
+  assert.equal(out, 'x2 + y 1'); // one line; the touching superscript joins without a space
+});
+
+test('margins are measured from the visible page box, not y = 0', () => {
+  const pages = [1, 2, 3, 4].map((n) => page([t(`Exercise ${n}`, 72, 800), t('Body text that sets the size', 72, 760)], 792, 400));
+  assert.deepEqual(md(...pages), [1, 2, 3, 4].map((n) => `Exercise ${n}\n\nBody text that sets the size`));
+});
+
+test('a big badge glyph between two label rows does not merge them', () => {
+  const [out] = md(page([
+    t('Customer', 123, 385, { size: 20 }), t('Order', 436, 385, { size: 20 }),
+    t('1', 602, 365.8, { size: 36 }),
+    t('Controller', 121, 361, { size: 20 }), t('Controller', 418, 361, { size: 20 }),
+    t('A long paragraph of body text so that the body size is twenty points.', 36, 200, { size: 20 }),
+  ], 540));
+  assert.ok(!/Customer.*Controller/.test(out) && !/Controller.*Customer/.test(out), out);
+});
+
+test('small caps on one baseline stay one line', () => {
+  const [out] = md(page([t('C', 72, 700, { size: 12, width: 8 }), t('REATE A', 80, 700, { size: 9.6 })]));
+  assert.equal(out, 'CREATE A');
 });
