@@ -36,7 +36,9 @@ const routes = {
   ],
   'https://x.test/api/v1/courses/7/modules/2/items?include[]=content_details&per_page=100': [
     { type: 'File', title: 'Backend.pptx', content_id: 21, content_details: { display_name: 'Backend.pptx', locked_for_user: false } },
+    { type: 'Assignment', title: 'Assignment 1', url: 'https://x.test/api/v1/courses/7/assignments/5', content_details: { locked_for_user: false } },
   ],
+  'https://x.test/api/v1/courses/7/assignments/5': { description: '<p>Use <a href="/courses/7/files/77">the reading</a>.</p>' },
   'https://x.test/api/v1/courses/7/pages/w1': { body: '<p>Slides: <a href="/courses/7/files/11">intro</a>, extra <a href="/courses/7/files/77/download">reading</a>.</p><img src="/courses/7/files/88/preview">' },
   '/api/v1/files/77': { display_name: 'reading.pdf', locked_for_user: false },
   '/api/v1/files/90': { display_name: 'guide.docx', locked_for_user: false },
@@ -69,10 +71,15 @@ test('announcements are read across pages, newest first, with their attachments'
   assert.deepEqual(ann.sections[0].items.map((i) => i.title), ['2026-10-26 · Lab moved', 'room-map.png', '2026-10-19 · Welcome']);
 });
 
-test('pictures a page only displays are page images, not items; keys are unique', async () => {
-  const course = await scanCourse(fakeCanvas(routes), 7);
-  assert.deepEqual(course.pageImageIds, [88]);
-  const keys = course.folders.flatMap((f) => f.sections.flatMap((s) => s.items.map((i) => i.key)));
+test('pictures a page only displays are not items; a file two pages link to is an item in both, keys unique', async () => {
+  const canvas = fakeCanvas(routes);
+  const course = await scanCourse(canvas, 7);
+  const items = course.folders.flatMap((f) => f.sections.flatMap((s) => s.items));
+  assert.ok(!items.some((i) => i.id === 88));
+  const reading = items.filter((i) => i.id === 77);
+  assert.deepEqual(reading.map((i) => i.key), ['m1:1', 'm2:2']);
+  assert.equal(canvas.asked.filter((u) => u === '/api/v1/files/77').length, 1);
+  const keys = items.map((i) => i.key);
   assert.equal(new Set(keys).size, keys.length);
 });
 

@@ -98,3 +98,11 @@ test('readable covers documents, slides, sheets, archives, code and pictures', (
   for (const name of ['a.pdf', 'a.pptx', 'a.ppt', 'a.docx', 'a.doc', 'a.xlsx', 'a.xls', 'a.csv', 'a.odt', 'a.epub', 'a.zip', 'a.ipynb', 'a.vtt', 'Main.java', 'Dockerfile', 'a.png']) assert.ok(isReadable(name), name);
   for (const name of ['a.mp4', 'a.key', 'a.rar']) assert.ok(!isReadable(name), name);
 });
+
+test('a picked picture whose file Canvas has locked is left out, not linked', async () => {
+  const packs = createPackBuilder({ files: fakeFiles({ 15: { name: 'answers.png', locked: 'Locked until Nov 10' } }), pdf });
+  const { markdown, images, skipped } = await packs.build(course, [{ folder: week1, section: lab, item: file('f6', 15, 'Answers', 'answers.png') }]);
+  assert.deepEqual(images, []);
+  assert.deepEqual(skipped, [{ title: 'Answers', reason: 'Locked until Nov 10' }]);
+  assert.ok(!markdown.includes('images/'));
+});

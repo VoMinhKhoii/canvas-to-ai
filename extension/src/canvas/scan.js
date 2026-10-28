@@ -41,7 +41,6 @@ export async function scanCourse(canvas, courseId, { onProgress = () => {} } = {
 
   // Files a page links to (attachments, links, embeds) are items of their own;
   // pictures it only displays (<img>) belong to the page (page images).
-  const pageImageIds = new Set();
   const linkedFiles = new Map(); // file id → Promise<item>
   const fileItem = (id) => {
     if (!linkedFiles.has(id)) {
@@ -59,11 +58,11 @@ export async function scanCourse(canvas, courseId, { onProgress = () => {} } = {
     for (const el of doc.querySelectorAll('[href*="/files/"], [src*="/files/"], [data-api-endpoint*="/files/"]')) {
       const id = Number(/\/files\/(\d+)/.exec(el.getAttribute('src') || el.getAttribute('href') || el.getAttribute('data-api-endpoint'))?.[1]);
       if (!id) continue;
-      if (el.tagName === 'IMG') pageImageIds.add(id);
-      else linked.add(id);
+      if (el.tagName !== 'IMG') linked.add(id);
     }
-    const files = (await Promise.all([...linked].filter((id) => !listed.has(id)).map(fileItem))).filter(Boolean);
-    return [...page, ...files];
+    // A copy each time: a file linked from two pages is an item in both, each with its own key.
+    const files = await Promise.all([...linked].filter((id) => !listed.has(id)).map(fileItem));
+    return [...page, ...files.filter(Boolean).map((item) => ({ ...item }))];
   }
 
   async function moduleItem(it) {
@@ -115,14 +114,7 @@ export async function scanCourse(canvas, courseId, { onProgress = () => {} } = {
     for (const section of folder.sections) for (const item of section.items) item.key = `${folder.id}:${n++}`;
     kept.push(folder);
   }
-  for (const item of await Promise.all(linkedFiles.values())) if (item) listed.add(item.id);
-  return {
-    id: String(courseId),
-    name: course.name,
-    code: course.course_code ?? '',
-    folders: kept,
-    pageImageIds: [...pageImageIds].filter((id) => !listed.has(id)),
-  };
+  return { id: String(courseId), name: course.name, code: course.course_code ?? '', folders: kept };
 }
 
 // Lock explanations come as HTML ("This file is locked until <b>…</b>").

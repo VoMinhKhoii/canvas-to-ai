@@ -86,6 +86,12 @@ function updateBar() {
   if (!state.busy) setStatus(state.sel ? pickedLine(state.sel) : '');
 }
 
+// A new selection needs a new pack ("Click to copy" was for the old one).
+function forgetPack() {
+  state.pack = null;
+  $('copy').textContent = 'Copy for AI';
+}
+
 // The card a node (folder, section or item) belongs to.
 const folderOf = (id) => id.split(/[#:]/)[0];
 
@@ -100,7 +106,7 @@ $('folders').addEventListener('click', (e) => {
   const pick = e.target.closest('[data-pick]');
   if (pick && state.sel && !state.busy) {
     state.sel.toggle(pick.dataset.pick);
-    state.pack = null;
+    forgetPack();
     redraw(folderOf(pick.dataset.pick));
     updateBar();
     document.querySelector(`[data-pick="${CSS.escape(pick.dataset.pick)}"]`)?.focus();
@@ -118,16 +124,16 @@ async function currentPack() {
   if (state.pack) return state.pack;
   state.busy = true;
   updateBar();
+  const label = $('copy').textContent;
   try {
-    const label = $('copy').textContent;
     $('progress').hidden = false;
     state.pack = await state.packs.build(state.course, state.sel.picked(), ({ done, total }) => {
       $('copy').textContent = `Preparing ${done} of ${total}…`;
       $('progress').style.transform = `scaleX(${done / total})`;
     });
-    $('copy').textContent = label;
     return state.pack;
   } finally {
+    $('copy').textContent = label;
     $('progress').hidden = true; // gone at once: a fading bar reads as still working
     $('progress').style.transform = 'scaleX(0)';
     state.busy = false;
@@ -199,12 +205,21 @@ menu.addEventListener('click', async (e) => {
   try {
     if (action === 'download') {
       const files = state.sel.picked().filter(({ item }) => item.kind === 'file' && !item.locked);
+      let started = 0;
       for (const { folder, item } of files) {
         const info = await state.packs.meta(item.id);
+        if (info.locked) continue;
         await download(info.url, `${folderPath(folder)}/${safe(info.name)}`);
+        started++;
       }
       const rest = state.sel.count() - files.length;
-      setStatus(`Downloading ${files.length} files to Downloads › Canvas.${rest ? ` Pages and links aren't files, so ${rest} ${rest === 1 ? 'was' : 'were'} skipped.` : ''}`, 'done');
+      const locked = files.length - started;
+      setStatus(
+        `Downloading ${started} files to Downloads › Canvas.` +
+          (rest ? ` Pages and links aren't files, so ${rest} ${rest === 1 ? 'was' : 'were'} skipped.` : '') +
+          (locked ? ` ${locked} ${locked === 1 ? 'is' : 'are'} locked.` : ''),
+        'done',
+      );
     }
     if (action === 'save') {
       const pack = await currentPack();
@@ -215,7 +230,7 @@ menu.addEventListener('click', async (e) => {
     }
     if (action === 'clear') {
       state.sel.clear();
-      state.pack = null;
+      forgetPack();
       $('folders').innerHTML = folderCards(state.course, state.sel, state.open);
       updateBar();
     }

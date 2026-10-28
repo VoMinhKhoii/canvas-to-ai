@@ -127,6 +127,7 @@ export function createPackBuilder({ files, pdf }) {
       if (isImage(item.fileName)) {
         try {
           const info = await meta(item.id);
+          if (info.locked) throw new Error(info.locked);
           const name = imageName(`${item.id}-${info.name}`);
           assets.set(name, { url: info.url });
           parts.push(`${heading}\n![](images/${name})`);
