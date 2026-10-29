@@ -29,20 +29,29 @@ export async function sheet(input) {
 
 // The first `limit` non-empty rows of the sheet's used range as strings, the
 // empty columns at the right edge trimmed, and how many non-empty rows it has.
+// Only the cells the file holds are visited: the declared range can be far
+// larger than its content (a 16 KB file can claim A1:XFD1048576).
 function cells(XLSX, ws, limit) {
   if (!ws?.['!ref']) return { rows: [], total: 0 };
   const range = XLSX.utils.decode_range(ws['!ref']);
-  const rows = [];
-  let total = 0;
-  for (let r = range.s.r; r <= range.e.r; r++) {
-    const row = [];
-    for (let c = range.s.c; c <= range.e.c; c++) {
-      const cell = ws[XLSX.utils.encode_cell({ r, c })];
-      const text = String(cell?.w ?? cell?.v ?? '').replace(/\s+/g, ' ').trim();
-      row.push(cell?.f ? `${text} (=${cell.f})`.trim() : text);
-    }
-    if (row.some(Boolean) && ++total <= limit) rows.push(row);
+  const byRow = new Map(); // row → [[column, text]]
+  for (const key of Object.keys(ws)) {
+    if (key[0] === '!') continue;
+    const cell = ws[key];
+    const value = String(cell?.w ?? cell?.v ?? '').replace(/\s+/g, ' ').trim();
+    const text = cell?.f ? `${value} (=${cell.f})`.trim() : value;
+    if (!text) continue;
+    const { r, c } = XLSX.utils.decode_cell(key);
+    if (r < range.s.r || r > range.e.r || c < range.s.c || c > range.e.c) continue;
+    if (!byRow.has(r)) byRow.set(r, []);
+    byRow.get(r).push([c - range.s.c, text]);
   }
-  const width = rows.reduce((w, row) => Math.max(w, row.findLastIndex(Boolean) + 1), 0);
-  return { rows: rows.map((row) => row.slice(0, width)), total };
+  const order = [...byRow.keys()].sort((a, b) => a - b);
+  const rows = order.slice(0, limit).map((r) => {
+    const row = [];
+    for (const [c, text] of byRow.get(r)) row[c] = text;
+    return row;
+  });
+  const width = rows.reduce((w, row) => Math.max(w, row.length), 0);
+  return { rows: rows.map((row) => Array.from({ length: width }, (_, c) => row[c] ?? '')), total: order.length };
 }

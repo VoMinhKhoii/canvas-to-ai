@@ -53,14 +53,14 @@ export function createPackBuilder({ files, pdf }) {
     // Start every conversion now, at most PARALLEL running at once, in pick
     // order; the document is then assembled in order as each one lands.
     const toConvert = picked.filter(({ item }) => item.kind === 'file' && !item.locked && !isImage(item.fileName) && isReadable(item.fileName));
-    const unique = [];
-    for (const { item } of toConvert) if (!unique.some((u) => u.id === item.id)) unique.push(item); // first pick names it
+    const unique = new Map(); // file id → item; the first pick names it
+    for (const { item } of toConvert) if (!unique.has(item.id)) unique.set(item.id, item);
     const limit = limiter(PARALLEL);
     let done = 0;
     const runs = new Map(
-      unique.map((item) => {
+      [...unique.values()].map((item) => {
         const run = limit(() => converted(item));
-        run.finally(() => onProgress({ done: ++done, total: unique.length, name: item.title })).catch(() => {});
+        run.finally(() => onProgress({ done: ++done, total: unique.size, name: item.title })).catch(() => {});
         return [item.id, run];
       }),
     );
@@ -75,7 +75,7 @@ export function createPackBuilder({ files, pdf }) {
     // Pictures shown in pages are course files: their names and download links
     // are looked up before the page is converted.
     const pageImages = async (html) => {
-      const ids = [...new Set([...(html ?? '').matchAll(/<img[^>]+src="[^"]*\/files\/(\d+)/g)].map((m) => Number(m[1])))];
+      const ids = [...new Set([...(html ?? '').matchAll(/<img[^<>]+src="[^"]*\/files\/(\d+)/g)].map((m) => Number(m[1])))]; // [^<>]: a run of "<img" with no ">" is not rescanned
       const found = new Map();
       await Promise.all(ids.map(async (id) => found.set(id, await meta(id).catch(() => null))));
       return (img) => {

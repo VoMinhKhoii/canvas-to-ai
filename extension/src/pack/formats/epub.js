@@ -30,7 +30,7 @@ export async function epub(bytes, { fileId }) {
     const html = await file.async('string');
     // Pictures are read up front so the (synchronous) HTML converter can name them.
     const pictures = new Map();
-    for (const [, src] of html.matchAll(/<img[^>]+src="([^"]+)"/g)) {
+    for (const [, src] of html.matchAll(/<img[^<>]+src="([^"]+)"/g)) { // [^<>]: a run of "<img" with no ">" is not rescanned
       const target = join(dirOf(path), src);
       const pic = await picture(zip, target);
       if (pic) pictures.set(src, { name: imageName(`${fileId}-${target}`), ...pic });

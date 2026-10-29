@@ -2,7 +2,20 @@
 import TurndownService from 'turndown';
 import { contentHeading, mdTable } from '../md.js';
 
-const tidy = (s) => s.replace(/\u00a0/g, ' ').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+// Spaces and tabs at line ends go line by line: /[ \t]+\n/ rescans a long run
+// of spaces from each of its spaces when no newline follows it (quadratic).
+const trimLineEnd = (line) => {
+  let end = line.length;
+  while (end && (line[end - 1] === ' ' || line[end - 1] === '\t')) end--;
+  return line.slice(0, end);
+};
+const tidy = (s) => {
+  const lines = s.replace(/\u00a0/g, ' ').split('\n');
+  return lines.map((l, i) => (i < lines.length - 1 ? trimLineEnd(l) : l)).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+};
+
+const MAX_BLANKS = 64;
+const LONG_BLANKS = /\s{65,}/g; // \s includes &nbsp;
 
 // HTML → Markdown. Headings are pushed down under our "###" item heading, link
 // URLs are dropped (tokens the AI can't use), and lists use compact markers.
@@ -21,6 +34,20 @@ export function htmlToMd(html, resolveImage = () => '') {
     const next = el.nextSibling;
     if (next && (next.nodeType === Node.ELEMENT_NODE || /^[\p{L}\p{N}]/u.test(next.textContent))) el.after(' ');
   }
+
+  // Turndown's last step (/[\t\r\n\s]+$/ over its whole output) rescans a run
+  // of whitespace from each of its characters: a page of 80k &nbsp; takes
+  // seconds. No reader needs more than 64 blanks in a row (code indents
+  // included), so longer runs are cut before conversion.
+  const cutBlanks = (node) => {
+    for (const child of node.childNodes) {
+      if (child.nodeType === Node.TEXT_NODE) {
+        if (child.data.length > MAX_BLANKS) child.data = child.data.replace(LONG_BLANKS, (run) => run.slice(0, MAX_BLANKS));
+      } else cutBlanks(child);
+    }
+  };
+  doc.body.normalize(); // one text node per run, as browsers parse it
+  cutBlanks(doc.body);
 
   const td = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced', bulletListMarker: '-' });
   td.escape = (s) => s; // Markdown escapes like "1\." only cost tokens
@@ -41,11 +68,16 @@ export function htmlToMd(html, resolveImage = () => '') {
   td.addRule('table', { filter: 'table', replacement: (content, node) => tableToMd(node, content, resolveImage) });
   td.addRule('rule', { filter: 'hr', replacement: () => '\n\n' }); // "* * *" only costs tokens
   td.addRule('image', { filter: 'img', replacement: (_, node) => resolveImage(node) });
+  const itemIndex = new Map(); // <ol> → its children's positions, found once (not per item: quadratic)
+  const indexIn = (parent, node) => {
+    if (!itemIndex.has(parent)) itemIndex.set(parent, new Map([...parent.children].map((c, i) => [c, i])));
+    return itemIndex.get(parent).get(node) ?? -1;
+  };
   td.addRule('compactListItem', {
     filter: 'li',
     replacement: (content, node) => {
       const parent = node.parentNode;
-      const prefix = parent.nodeName === 'OL' ? `${Number(parent.getAttribute('start') || 1) + [...parent.children].indexOf(node)}. ` : '- ';
+      const prefix = parent.nodeName === 'OL' ? `${Number(parent.getAttribute('start') || 1) + indexIn(parent, node)}. ` : '- ';
       content = content.replace(/^\n+/, '').replace(/\n+$/, '\n').replace(/\n/gm, `\n${' '.repeat(prefix.length)}`);
       return prefix + content + (node.nextSibling && !/\n$/.test(content) ? '\n' : '');
     },

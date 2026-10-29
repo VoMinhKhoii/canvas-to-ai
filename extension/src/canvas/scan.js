@@ -96,7 +96,10 @@ export async function scanCourse(canvas, courseId, { onProgress = () => {} } = {
       const items = moduleItems[k];
       const resolved = await Promise.all(items.map((it) => (it.type === 'SubHeader' ? null : moduleItem(it))));
       const sections = [{ title: null, items: [] }];
-      items.forEach((it, i) => (it.type === 'SubHeader' ? sections.push({ title: it.title.trim(), items: [] }) : sections.at(-1).items.push(...resolved[i])));
+      items.forEach((it, i) => {
+        if (it.type === 'SubHeader') sections.push({ title: it.title.trim(), items: [] });
+        else for (const item of resolved[i]) sections.at(-1).items.push(item); // no spread: a page can link 100k+ files
+      });
       onProgress(`Reading the course… ${++read} of ${modules.length} modules`);
       return { id: `m${m.id}`, kind: 'module', title: m.name.trim(), sections };
     }),

@@ -242,17 +242,19 @@ function toBlocks(lines, body, headingSizes) {
     } else {
       // Wrapped continuation of the previous paragraph or bullet, else a new
       // paragraph. A lower-case line after an unfinished sentence continues it
-      // even across the looser line spacing of slides.
+      // even across the looser line spacing of slides. The paragraph's end is
+      // read from its last line (its text ends with it): reading the whole
+      // text for every line would be quadratic in a 100k-line paragraph.
       const sameSize = prev && Math.abs(prev.last.size - line.size) <= 1;
       const indentOk = prev?.kind === 'li' ? line.x > prev.bulletX : true;
-      const unfinished = prev && startsLower(line.text) && !/[.!?:;]$/.test(prev.text ?? '') && gap <= Math.max(line.size, prev.last.size) * 2.6;
+      const unfinished = prev && startsLower(line.text) && !/[.!?:;]$/.test(prev.text === undefined ? '' : prev.last.text) && gap <= Math.max(line.size, prev.last.size) * 2.6;
       const joins = (prev?.kind === 'p' || prev?.kind === 'li') && indentOk && ((close && sameSize) || unfinished);
       if (joins || (prev?.kind === 'h' && unfinished)) {
         // A heading's wrapped line at its own size stays in it ("Message-oriented
         // persistent / asynchronous communication"); a sentence that goes on in
         // body text means the large line was not a heading.
         if (prev.kind === 'h' && !sameSize) prev.kind = 'p';
-        prev.text = /[a-z]-$/.test(prev.text) ? prev.text + line.text : `${prev.text} ${line.text}`;
+        prev.text = /[a-z]-$/.test(prev.last.text) ? prev.text + line.text : `${prev.text} ${line.text}`;
       } else {
         blocks.push({ kind: 'p', text: line.text });
       }
@@ -271,6 +273,8 @@ function blockText(b) {
   return b.text;
 }
 
+const MAX_INDENT = 120;
+
 function blocksToMd(blocks) {
   let out = '';
   for (const [i, b] of blocks.entries()) {
@@ -280,8 +284,9 @@ function blocksToMd(blocks) {
     else if (b.kind === 'p') out += sep + b.text;
     else if (b.kind === 'table') out += sep + (b.rows.length === 1 ? b.rows[0].join(' | ') : mdTable(b.rows)); // lone row: just keep the cells apart
     else {
-      const minX = Math.min(...b.lines.map((l) => l.x));
-      const code = b.lines.map((l) => ' '.repeat(Math.max(0, Math.round((l.x - minX) / (l.size * 0.6)))) + l.text);
+      const minX = b.lines.reduce((m, l) => Math.min(m, l.x), Infinity); // no spread: a block can have 100k+ lines
+      // Indent in character widths, capped: a crafted font size or position could ask for millions of spaces.
+      const code = b.lines.map((l) => ' '.repeat(Math.min(MAX_INDENT, Math.max(0, Math.round((l.x - minX) / (l.size * 0.6))))) + l.text);
       out += `${sep}\`\`\`\n${code.join('\n')}\n\`\`\``;
     }
   }

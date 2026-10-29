@@ -127,13 +127,17 @@ export async function ppt(bytes) {
   }
 
   const out = [];
+  const read = new Set(); // slide containers already read: a crafted list can name one many times
   for (const [i, slide] of slides.entries()) {
     const at = live.get(slide.persist);
+    if (at !== undefined && read.has(at)) continue;
+    read.add(at);
     const drawn = at === undefined ? [] : containerText(view, stream, at);
     // The slide's notes: its SlideAtom names the notes by id.
     let notes = '';
     if (at !== undefined) {
-      const atom = [...walk(view, at)].find((r) => r.type === SLIDE_ATOM);
+      let atom;
+      for (const r of walk(view, at)) if (r.type === SLIDE_ATOM) { atom = r; break; }
       const notesAt = atom && live.get(notesById.get(view.getUint32(atom.body + 16, true)));
       if (notesAt !== undefined) notes = containerText(view, stream, notesAt).map((t) => t.text.replace(/\s+/g, ' ')).join(' ').replace(/(\s*\*)+$/, ''); // "*" is the slide-number field
     }
@@ -165,6 +169,7 @@ export async function doc(bytes) {
   if (!table) throw new Error('damaged Word file');
   const t = new DataView(table.buffer, table.byteOffset, table.byteLength);
   const ccpText = w.getUint32(0x4c, true);
+  if (ccpText > word.length) throw new Error('damaged Word file'); // every character takes at least a byte of the stream
   const fcClx = w.getUint32(0x1a2, true);
   const lcbClx = w.getUint32(0x1a6, true);
 
