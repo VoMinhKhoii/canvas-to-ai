@@ -23,11 +23,15 @@ const zip = (files) => {
   return z.generateAsync({ type: 'arraybuffer', compression: 'DEFLATE' });
 };
 const text = (s) => new TextEncoder().encode(s).buffer;
-// Runs fn and checks it finishes well within a second (each took seconds or more before).
+// Runs fn and checks it finishes within BUDGET_MS. Each input takes the old
+// code 15 s to hours, and the fixed code well under a second, so the budget
+// leaves room for a loaded machine (test files run in parallel) and still
+// fails the old code by a wide margin.
+const BUDGET_MS = 5000;
 async function quickly(fn) {
   const start = performance.now();
   const result = await fn();
-  assert.ok(performance.now() - start < 1000, `took ${Math.round(performance.now() - start)} ms`);
+  assert.ok(performance.now() - start < BUDGET_MS, `took ${Math.round(performance.now() - start)} ms`);
   return result;
 }
 
@@ -167,7 +171,7 @@ test('text formats: runs with no closing mark are not rescanned', async () => {
   await quickly(() => convert('main.js', text(`a${' '.repeat(n)}a`)));
   await quickly(() => convert('lecture.vtt', text('<'.repeat(n))));
   await quickly(() => convert('lecture.srt', text('{\\'.repeat(n / 2))));
-  await quickly(() => convert('invite.ics', text(`BEGIN:VEVENT\nSUMMARY:x\nDESCRIPTION:${'<http:'.repeat(n / 6)}\nEND:VEVENT`)));
+  await quickly(() => convert('invite.ics', text(`BEGIN:VEVENT\nSUMMARY:x\nDESCRIPTION:${'<http:'.repeat(n / 2)}\nEND:VEVENT`)));
 });
 
 test('html: long blank runs, long lists and unclosed <img runs convert in linear time', async () => {
@@ -185,7 +189,17 @@ test('html: long blank runs, long lists and unclosed <img runs convert in linear
 });
 
 test('limiter: a long queue drains in linear time', async () => {
-  const limit = limiter(6);
-  const results = await quickly(() => Promise.all(Array.from({ length: 100000 }, (_, i) => limit(() => i))));
-  assert.equal(results[99999], 99999);
+  const drain = async (n) => {
+    const limit = limiter(6);
+    const start = performance.now();
+    const results = await Promise.all(Array.from({ length: n }, (_, i) => limit(() => i)));
+    assert.equal(results[n - 1], n - 1);
+    return performance.now() - start;
+  };
+  // Four times the tasks: about four times the time if draining is linear, about
+  // sixteen if quadratic (as when shift() copied the queue). Comparing the queue
+  // with itself, best of two, keeps the test independent of the machine's load.
+  const small = Math.min(await drain(25000), await drain(25000));
+  const large = Math.min(await drain(100000), await drain(100000));
+  assert.ok(large < small * 9, `${Math.round(small)} ms for 25k tasks, ${Math.round(large)} ms for 100k`);
 });
