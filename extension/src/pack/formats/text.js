@@ -1,7 +1,7 @@
 // Text formats: source code, plain text and Markdown, Jupyter notebooks,
 // subtitles and transcripts (.vtt, .srt), calendar invites (.ics) and Rich
 // Text (.rtf). Each converter takes the file's text and returns { md, assets }.
-import { contentHeading } from '../md.js';
+import { contentHeading, removeBefore } from '../md.js';
 
 const none = () => new Map();
 
@@ -21,7 +21,7 @@ export const CODE = {
 // Build files known by name rather than extension.
 export const CODE_NAMES = { dockerfile: 'dockerfile', makefile: 'makefile', 'cmakelists.txt': 'cmake', jenkinsfile: 'groovy' };
 
-const fence = (lang, text) => `\`\`\`${lang}\n${text.replace(/\s+$/, '')}\n\`\`\``;
+const fence = (lang, text) => `\`\`\`${lang}\n${text.trimEnd()}\n\`\`\``; // not /\s+$/: quadratic on a long run of spaces mid-file
 
 export const code = (lang) => (text) => ({ md: fence(lang, text), assets: none() });
 export const plain = (text) => ({ md: text.trim(), assets: none() });
@@ -60,7 +60,7 @@ export function notebook(text) {
 export function subtitles(text) {
   const lines = [];
   for (const raw of text.replace(/\r/g, '').split('\n')) {
-    const line = raw.replace(/<[^>]+>/g, '').replace(/\{\\[^}]*\}/g, '').trim();
+    const line = removeBefore(removeBefore(raw, /<[^>]+>/g, '>'), /\{\\[^}]*\}/g, '}').trim();
     if (!line || /^WEBVTT/.test(line) || /^(NOTE|STYLE|REGION)\b/.test(line) || /^\d+$/.test(line) || /-->/.test(line)) continue;
     if (lines.at(-1) !== line) lines.push(line);
   }
@@ -91,7 +91,7 @@ export function calendar(text) {
     }
   }
   const when = (v) => v?.replace(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})\d*(Z?))?$/, (_, y, mo, d, h, mi, z) => `${y}-${mo}-${d}${h ? ` ${h}:${mi}${z ? ' UTC' : ''}` : ''}`);
-  const about = (s) => s?.replace(/<https?:[^>]*>/g, '').replace(/https?:\/\/\S{80,}/g, '').split('\n').map((l) => l.trim()).filter((l) => l && !/^[_\-=*]{5,}$/.test(l)).join('\n');
+  const about = (s) => s && removeBefore(s, /<https?:[^>]*>/g, '>').replace(/https?:\/\/\S{80,}/g, '').split('\n').map((l) => l.trim()).filter((l) => l && !/^[_\-=*]{5,}$/.test(l)).join('\n');
   const md = events
     .map((e) => [contentHeading(1, e.SUMMARY || 'Event'), [when(e.DTSTART), when(e.DTEND)].filter(Boolean).join(' to '), e.LOCATION && `Where: ${e.LOCATION}`, about(e.DESCRIPTION)].filter(Boolean).join('\n'))
     .join('\n\n');

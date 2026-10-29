@@ -15,4 +15,5 @@ const { version } = JSON.parse(readFileSync('package.json', 'utf8'));
 const manifest = JSON.parse(readFileSync('src/manifest.json', 'utf8'));
 writeFileSync('dist/manifest.json', JSON.stringify({ ...manifest, version }, null, 2));
 for (const f of ['sidepanel.html', 'sidepanel.css']) cpSync(`src/panel/${f}`, `dist/${f}`);
+for (const size of [16, 32, 48, 128]) cpSync(`src/icons/icon-${size}.png`, `dist/icons/icon-${size}.png`);
 cpSync('node_modules/pdfjs-dist/build/pdf.worker.min.mjs', 'dist/pdf.worker.min.mjs');

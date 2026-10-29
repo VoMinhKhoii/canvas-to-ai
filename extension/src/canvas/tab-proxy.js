@@ -14,6 +14,10 @@ async function canvasGet(url) {
   const target = new URL(url, location.origin);
   if (target.origin !== location.origin || !target.pathname.startsWith('/api/v1/')) throw new Error('Not a Canvas API address');
   const res = await fetch(target, { credentials: 'include', headers: { Accept: 'application/json' } });
+  // A redirect (an expired login, a misconfigured site) must not make another
+  // page's content pass for an API answer.
+  const landed = new URL(res.url);
+  if (landed.origin !== location.origin || !landed.pathname.startsWith('/api/v1/')) throw new Error('Canvas sent the request elsewhere. Log in to Canvas in that tab and try again.');
   if (!res.ok) return { status: res.status };
   // Canvas prefixes JSON for cookie sessions with "while(1);".
   const data = JSON.parse((await res.text()).replace(/^while\(1\);/, ''));

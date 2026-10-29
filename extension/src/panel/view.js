@@ -4,7 +4,7 @@ import { sectionId } from './selection.js';
 import { isReadable } from '../pack/formats/index.js';
 import { extOf } from '../pack/names.js';
 
-const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+export const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
 const ICONS = {
   chevron: '<path d="M6 4l4 4-4 4"/>',

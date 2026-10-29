@@ -35,7 +35,14 @@ export async function pdfToMd(bytes, { fileId, pdf }) {
   const lib = await pdf.load();
   // pdf.js hands the buffer to its worker, which empties it: give it a copy.
   const task = lib.getDocument({ data: new Uint8Array(bytes.slice(0)), isEvalSupported: false, verbosity: 0 });
-  const doc = await task.promise;
+  try {
+    return await convertDoc(lib, pdf, await task.promise, fileId);
+  } finally {
+    await task.destroy(); // also on failure: each undestroyed task keeps a worker and the file alive
+  }
+}
+
+async function convertDoc(lib, pdf, doc, fileId) {
   const contents = [];
   for (let i = 1; i <= doc.numPages; i++) {
     const page = await doc.getPage(i);
@@ -62,7 +69,6 @@ export async function pdfToMd(bytes, { fileId, pdf }) {
     }
     if (pageMd) out.push(`[p.${i + 1}]\n${pageMd}`);
   }
-  await task.destroy();
   return { md: out.join('\n\n'), assets };
 }
 

@@ -11,11 +11,24 @@ function rawText(el) {
   let out = '';
   for (const n of el.childNodes) {
     if (n.nodeType === 3) out += n.textContent;
-    else if (n.tagName === 'text:s') out += ' '.repeat(Number(n.getAttribute('text:c') || 1));
+    else if (n.tagName === 'text:s') out += ' '.repeat(Math.min(1, Number(n.getAttribute('text:c') || 1))); // inline() collapses runs: one space reads the same as text:c of them
     else if (n.tagName === 'text:tab' || n.tagName === 'text:line-break') out += ' ';
     else if (n.nodeType === 1 && n.tagName !== 'text:note') out += rawText(n); // spaces at span edges are kept
   }
   return out;
+}
+
+// A table's own rows, also inside header-rows/rows/row-group wrappers, but not
+// those of tables nested in its cells: each cell renders its own tables, so
+// taking theirs too would render nested tables again at every level.
+const ROW_GROUPS = new Set(['table:table-header-rows', 'table:table-rows', 'table:table-row-group']);
+function ownRows(parent) {
+  const rows = [];
+  for (const el of parent.children) {
+    if (el.tagName === 'table:table-row') rows.push(el);
+    else if (ROW_GROUPS.has(el.tagName)) for (const row of ownRows(el)) rows.push(row); // no spread: a group can hold 100k+ rows
+  }
+  return rows;
 }
 
 // Block elements of an office:text body or a presentation frame → Markdown lines.
@@ -34,7 +47,7 @@ function blocks(parent, depth = 0) {
         lines.forEach((l, i) => out.push(i === 0 && !l.startsWith('  ') && !l.startsWith('- ') ? `${'  '.repeat(depth)}- ${l}` : l));
       }
     } else if (el.tagName === 'table:table') {
-      const rows = [...el.getElementsByTagName('table:table-row')].map((tr) => [...tr.getElementsByTagName('table:table-cell')].map((tc) => blocks(tc).join(' ')));
+      const rows = ownRows(el).map((tr) => [...tr.children].filter((tc) => tc.tagName === 'table:table-cell').map((tc) => blocks(tc).join(' ')));
       if (rows.length) out.push(mdTable(rows));
     } else if (el.tagName === 'text:section' || el.tagName === 'draw:frame' || el.tagName === 'draw:text-box') {
       out.push(...blocks(el, depth));

@@ -32,7 +32,7 @@ reason.
 ## Develop
 
 ```bash
-npm install
+npm ci          # the versions in package-lock.json
 npm test        # node:test, no browser needed
 npm run build   # → dist/
 ```

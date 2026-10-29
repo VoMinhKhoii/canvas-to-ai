@@ -6,7 +6,7 @@ import { createPackBuilder } from '../pack/build.js';
 import { safe, pathAllocator } from '../pack/names.js';
 import { createSelection } from './selection.js';
 import { htmlToMd } from '../pack/formats/html-to-md.js';
-import { folderCards, folderCard, pickedLine, loadingCards, termsCard } from './view.js';
+import { folderCards, folderCard, pickedLine, loadingCards, termsCard, esc } from './view.js';
 
 const $ = (id) => document.getElementById(id);
 const COURSE_URL = /^https:\/\/[^/]+\.instructure\.com\/courses\/(\d+)/;
@@ -96,7 +96,7 @@ async function scan() {
     $('folders').innerHTML = folderCards(course, state.sel, state.open);
     setStatus('');
   } catch (e) {
-    message(`${e.message}<br><button class="text-button" id="retry">Try again</button>`);
+    message(`${esc(e.message)}<br><button class="text-button" id="retry">Try again</button>`); // error text can quote what Canvas sent: never markup
     $('retry')?.addEventListener('click', scan);
   } finally {
     state.busy = false;
@@ -208,7 +208,7 @@ $('copy').addEventListener('click', async () => {
       setStatus('Ready. Click once more to copy.');
     }
   } catch (e) {
-    setStatus(`Couldn't prepare it: ${e.message}`, 'error');
+    setStatus(`Couldn't prepare it: ${esc(e.message)}`, 'error');
   }
 });
 
@@ -227,7 +227,9 @@ document.addEventListener('click', (e) => !e.target.closest('#menu, #more') && c
 // Downloads keep the course's tree as Canvas shows it:
 // Canvas/<course>/<NN module>/<section>/<file>, pages as Markdown beside the files.
 const folderDir = (course, folder) => `Canvas/${safe(course.name)}/${String(course.folders.indexOf(folder) + 1).padStart(2, '0')} ${safe(folder.title.replace(/\s*\/\s*/g, ' - '))}`; // "Week 1/Topic 1" → "Week 1 - Topic 1"
-const download = (url, filename) => chrome.downloads.download({ url, filename, conflictAction: 'overwrite', saveAs: false });
+// A file already there is never replaced (it may be the student's own edit, or
+// another course of the same name): Chrome adds " (1)" to the new one.
+const download = (url, filename) => chrome.downloads.download({ url, filename, conflictAction: 'uniquify', saveAs: false });
 
 async function downloadTree(course, packs, entries) {
   const wanted = entries.filter(({ item }) => !item.locked && item.kind !== 'link');
@@ -257,7 +259,7 @@ async function downloadTree(course, packs, entries) {
   }
   const skipped = entries.length - wanted.length;
   setStatus(
-    `Downloading ${files} ${files === 1 ? 'file' : 'files'}${pages ? ` and ${pages} ${pages === 1 ? 'page' : 'pages'}` : ''} to Downloads › Canvas › ${safe(course.name)}.` +
+    `Downloading ${files} ${files === 1 ? 'file' : 'files'}${pages ? ` and ${pages} ${pages === 1 ? 'page' : 'pages'}` : ''} to Downloads › Canvas › ${esc(safe(course.name))}.` +
       (locked ? ` ${locked} ${locked === 1 ? 'is' : 'are'} locked.` : '') +
       (skipped ? ` ${skipped} ${skipped === 1 ? 'link or locked item was' : 'links or locked items were'} skipped.` : ''),
     'done',
@@ -274,7 +276,7 @@ async function saveWithPictures({ course }) {
   const folder = `Canvas/${safe(course.name)} - for AI`;
   await download(URL.createObjectURL(new Blob([pack.markdown], { type: 'text/markdown' })), `${folder}/course.md`);
   for (const img of pack.images) await download(img.url ?? URL.createObjectURL(img.blob), `${folder}/images/${img.name}`);
-  setStatus(`Saved to Downloads › ${folder}. Drag <b>course.md</b> and the <b>images</b> folder into the chat.`, 'done');
+  setStatus(`Saved to Downloads › ${esc(folder)}. Drag <b>course.md</b> and the <b>images</b> folder into the chat.`, 'done');
 }
 
 function clearPicks({ course, sel }) {
@@ -292,7 +294,7 @@ menu.addEventListener('click', async (e) => {
   try {
     await action({ ...state });
   } catch (err) {
-    setStatus(`That didn't work: ${err.message}`, 'error');
+    setStatus(`That didn't work: ${esc(err.message)}`, 'error');
   }
 });
 

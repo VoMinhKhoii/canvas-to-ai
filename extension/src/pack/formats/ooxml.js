@@ -191,11 +191,15 @@ export async function pptxToMd(buf, { fileId }) {
   const presRels = await rels(zip, 'ppt/presentation.xml');
   const sldSz = pres.getElementsByTagName('p:sldSz')[0];
   const slideArea = Number(sldSz?.getAttribute('cx') || 12192000) * Number(sldSz?.getAttribute('cy') || 6858000);
-  const slidePaths = [...pres.getElementsByTagName('p:sldId')].map((s) => presRels.find((r) => r.id === s.getAttribute('r:id')).path);
+  const relPath = new Map(presRels.map((r) => [r.id, r.path]));
+  const slidePaths = [...pres.getElementsByTagName('p:sldId')].map((s) => relPath.get(s.getAttribute('r:id')));
 
   const media = new Map();
   const slides = [];
+  const read = new Set(); // a crafted list can name one slide part thousands of times
   for (const [i, path] of slidePaths.entries()) {
+    if (read.has(path)) continue;
+    read.add(path);
     const slide = await readSlide(zip, path, slideArea, fileId, media);
     if (slide) slides.push({ number: i + 1, ...slide });
   }
