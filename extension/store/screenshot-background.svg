@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="800" viewBox="0 0 1280 800">
+  <rect width="1280" height="800" fill="#000054"/>
+  <g transform="translate(72 84)">
+    <rect width="56" height="56" rx="12" fill="#fff"/>
+    <rect x="6" y="11" width="44" height="34" rx="3" fill="#000054"/>
+    <rect x="31" y="11" width="19" height="34" rx="3" fill="#f7941d"/>
+    <rect x="31" y="11" width="4" height="34" fill="#f7941d"/>
+    <path d="M35.5 28l3.5 3.5 6.5-7.5" stroke="#000054" stroke-width="3.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="11" y="18" width="14" height="3.5" rx="1.75" fill="#fff"/>
+    <rect x="11" y="25" width="11" height="3.5" rx="1.75" fill="#7f80b0"/>
+    <rect x="11" y="32" width="13" height="3.5" rx="1.75" fill="#7f80b0"/>
+    <text x="76" y="38" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-weight="700" font-size="28" letter-spacing="-0.5" fill="#fff">Canvas to AI</text>
+  </g>
+  <text font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-weight="700" font-size="56" letter-spacing="-1.6" fill="#fff">
+    <tspan x="72" y="318">Weeks of course materials,</tspan>
+    <tspan x="72" y="384" fill="#f7941d">ready to paste into AI.</tspan>
+  </text>
+  <text font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="23" fill="#fff">
+    <tspan x="72" y="476">Pick a week of your Canvas course, or single files.</tspan>
+    <tspan x="72" y="518">Slides, PDFs, docs, sheets and code become one text.</tspan>
+    <tspan x="72" y="560">Read on your own computer: nothing goes anywhere</tspan>
+    <tspan x="72" y="592">except Canvas.</tspan>
+  </text>
+</svg>

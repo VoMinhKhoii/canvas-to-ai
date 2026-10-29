@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- The course window with the side panel docked on its right, one item ticked. -->
+  <rect x="8" y="8" width="112" height="112" rx="22" fill="#000054"/>
+  <rect x="22" y="28" width="84" height="72" rx="6" fill="#fff"/>
+  <rect x="70" y="28" width="36" height="72" rx="6" fill="#f7941d"/>
+  <rect x="70" y="28" width="8" height="72" fill="#f7941d"/>
+  <path d="M78 64l7 7 13-15" stroke="#000054" stroke-width="7" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="31" y="42" width="28" height="7" rx="3.5" fill="#000054"/>
+  <rect x="31" y="56" width="22" height="7" rx="3.5" fill="#cfd0e0"/>
+  <rect x="31" y="70" width="26" height="7" rx="3.5" fill="#cfd0e0"/>
+</svg>
