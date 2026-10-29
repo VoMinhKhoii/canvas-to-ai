@@ -14,13 +14,26 @@ export async function tabCanvas(tabId) {
   };
 }
 
+// Download links are only followed to Canvas and its file hosts (the
+// extension's host permissions), over https.
+const FILE_HOSTS = /(^|\.)(instructure\.com|canvas-user-content\.com|inscloudgate\.net)$/;
+export function isCanvasFileUrl(url) {
+  try {
+    const { protocol, hostname } = new URL(url);
+    return protocol === 'https:' && FILE_HOSTS.test(hostname);
+  } catch {
+    return false;
+  }
+}
+
 // The file seam's adapter in the extension: details through Canvas, bytes
 // fetched by the panel itself (download links carry their own key).
 export function canvasFiles(canvas) {
   return {
     async meta(id) {
       const { data } = await canvas.get(`/api/v1/files/${id}`);
-      return { name: data.display_name, size: data.size ?? 0, url: data.url ?? '', locked: lockedReason(data, data.locked_for_user || !data.url) };
+      const url = isCanvasFileUrl(data.url) ? data.url : '';
+      return { name: data.display_name, size: data.size ?? 0, url, locked: lockedReason(data, data.locked_for_user || !url) };
     },
     async bytes(url) {
       const res = await fetch(url).catch(() => {

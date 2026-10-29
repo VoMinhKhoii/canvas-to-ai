@@ -13,6 +13,9 @@
     "https://*.canvas-user-content.com/*",
     "https://*.inscloudgate.net/*"
   ],
+  "content_security_policy": {
+    "extension_pages": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https: data: blob:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'"
+  },
   "background": {
     "service_worker": "background.js"
   },
