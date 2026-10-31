@@ -33,7 +33,9 @@ export async function scanCourse(canvas, courseId, { onProgress = () => {} } = {
   const [course, modules, announcements] = await Promise.all([
     get(`${api}?include[]=syllabus_body`).then((r) => r.data),
     getAll(`${api}/modules?include[]=items&include[]=content_details&per_page=100`),
-    getAll(`${api}/discussion_topics?only_announcements=true&per_page=100`),
+    // A course can close its announcements (403) and still open everything
+    // else. Any other failure is real: the scan must not pass without them.
+    getAll(`${api}/discussion_topics?only_announcements=true&per_page=100`).catch((e) => (e.status === 403 ? [] : Promise.reject(e))),
   ]);
 
   // Every module's items first, so a page that links to a file the course

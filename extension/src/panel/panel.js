@@ -5,12 +5,14 @@ import { tabCanvas, canvasFiles } from '../canvas/tab-adapter.js';
 import { createPackBuilder } from '../pack/build.js';
 import { safe, pathAllocator } from '../pack/names.js';
 import { createSelection } from './selection.js';
+import { limiter } from '../limit.js';
 import { htmlToMd } from '../pack/formats/html-to-md.js';
 import { folderCards, folderCard, pickedLine, loadingCards, termsCard, esc } from './view.js';
 
 const $ = (id) => document.getElementById(id);
 const COURSE_URL = /^https:\/\/[^/]+\.instructure\.com\/courses\/(\d+)/;
 const COPY_LABEL = 'Copy text for AI';
+const CLOSED_COURSE = 'Canvas only lets students in this course read it. You may see its syllabus, but its modules and files are closed. If the course has a <b>Join this Course</b> button, join and scan again.';
 
 // pdf.js and a canvas to render picture pages, loaded on the first PDF.
 const pdf = {
@@ -96,7 +98,10 @@ async function scan() {
     $('folders').innerHTML = folderCards(course, state.sel, state.open);
     setStatus('');
   } catch (e) {
-    message(`${esc(e.message)}<br><button class="text-button" id="retry">Try again</button>`); // error text can quote what Canvas sent: never markup
+    // 403: logged in, but the course is open to its own students only (a
+    // course in All Courses may still show visitors its syllabus).
+    const why = e.status === 403 ? CLOSED_COURSE : esc(e.message); // error text can quote what Canvas sent: never markup
+    message(`${why}<br><button class="text-button" id="retry">Try again</button>`);
     $('retry')?.addEventListener('click', scan);
   } finally {
     state.busy = false;
@@ -230,6 +235,7 @@ const folderDir = (course, folder) => `Canvas/${safe(course.name)}/${String(cour
 // A file already there is never replaced (it may be the student's own edit, or
 // another course of the same name): Chrome adds " (1)" to the new one.
 const download = (url, filename) => chrome.downloads.download({ url, filename, conflictAction: 'uniquify', saveAs: false });
+const LOOKUPS = 6; // as the scan: well under Canvas's rate limit
 
 async function downloadTree(course, packs, entries) {
   const wanted = entries.filter(({ item }) => !item.locked && item.kind !== 'link');
@@ -237,7 +243,11 @@ async function downloadTree(course, packs, entries) {
   let files = 0;
   let pages = 0;
   let locked = 0;
-  for (const [n, { folder, section, item }] of wanted.entries()) {
+  // Download links are looked up ahead, LOOKUPS at a time; files are still
+  // handed to Chrome (which fetches several at once) in the course's order.
+  const limit = limiter(LOOKUPS);
+  const jobs = wanted.map((entry) => ({ ...entry, lookup: entry.item.kind === 'page' ? null : limit(() => packs.meta(entry.item.id)).catch(() => null) }));
+  for (const [n, { folder, section, item, lookup }] of jobs.entries()) {
     setStatus(`Downloading ${n + 1} of ${wanted.length}…`);
     const dir = [folderDir(course, folder), section.title && safe(section.title)].filter(Boolean).join('/');
     if (item.kind === 'page') {
@@ -247,7 +257,7 @@ async function downloadTree(course, packs, entries) {
       pages++;
       continue;
     }
-    const info = await packs.meta(item.id).catch(() => null);
+    const info = await lookup;
     if (!info?.url || info.locked) {
       locked++;
       continue;

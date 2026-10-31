@@ -1,12 +1,12 @@
-# Chrome Web Store submission: Canvas to AI 0.4.0
+# Chrome Web Store submission: Canvas to AI 0.4.1
 
 Everything the developer dashboard asks for, in the order it asks. Paste each block as is.
 
 ## Package
 
-- Upload `canvas-to-ai-0.4.0.zip`, built from this commit:
+- Upload `canvas-to-ai-0.4.1.zip`, built from this commit:
   ```bash
-  cd extension && npm ci && npm test && npm run build && (cd dist && zip -X -r ../canvas-to-ai-0.4.0.zip .)
+  cd extension && npm ci && npm test && npm run build && (cd dist && zip -X -r ../canvas-to-ai-0.4.1.zip .)
   ```
   The zip holds `dist/` only: `manifest.json` at its root, no source maps, tests or `node_modules`.
 
