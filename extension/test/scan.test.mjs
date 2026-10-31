@@ -102,6 +102,14 @@ test('a course that closes only its announcements is still read', async () => {
   assert.ok(course.folders.some((f) => f.id === 'm1'));
 });
 
+test('announcements that fail for another reason fail the scan', async () => {
+  const canvas = fakeCanvas(routes);
+  const get = canvas.get;
+  const broken = Object.assign(new Error('Canvas answered 500'), { status: 500 });
+  canvas.get = (url) => (url.includes('discussion_topics?page=2') ? Promise.reject(broken) : get(url));
+  await assert.rejects(scanCourse(canvas, 7), { status: 500 });
+});
+
 test('a course closed to this student fails with the 403, for the panel to explain', async () => {
   const canvas = { get: (url) => Promise.reject(refused(url)) };
   await assert.rejects(scanCourse(canvas, 7), { status: 403 });
