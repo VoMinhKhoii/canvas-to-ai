@@ -25,4 +25,6 @@ cpSync('node_modules/pdfjs-dist/build/pdf.worker.min.mjs', 'dist/pdf.worker.min.
 cpSync('dist', 'dist-safari', { recursive: true });
 const { side_panel, ...safari } = { ...manifest, version };
 safari.permissions = safari.permissions.filter((p) => p !== 'sidePanel' && p !== 'downloads');
+// The App Store rejects a Safari extension whose description is over 112 characters.
+safari.description = 'Weeks of Canvas course materials, ready to paste into AI. Slides, PDFs and docs, read on your Mac.';
 writeFileSync('dist-safari/manifest.json', JSON.stringify(safari, null, 2));
