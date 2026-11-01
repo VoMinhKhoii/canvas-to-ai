@@ -12,6 +12,9 @@ import { folderCards, folderCard, pickedLine, loadingCards, termsCard, esc } fro
 const $ = (id) => document.getElementById(id);
 const COURSE_URL = /^https:\/\/[^/]+\.instructure\.com\/courses\/(\d+)/;
 const COPY_LABEL = 'Copy text for AI';
+// Chrome saves files itself (chrome.downloads); Safari has no downloads API.
+const SAVES_FILES = Boolean(chrome.downloads);
+const SAFARI_SITES = '<br><br>If it is open: in Safari, allow Canvas to AI on your Canvas site (Safari › Settings › Extensions › Canvas to AI › Edit Websites).';
 const CLOSED_COURSE = 'Canvas only lets students in this course read it. You may see its syllabus, but its modules and files are closed. If the course has a <b>Join this Course</b> button, join and scan again.';
 
 // pdf.js and a canvas to render picture pages, loaded on the first PDF.
@@ -30,14 +33,16 @@ const pdf = {
   },
 };
 
-const state = { course: null, sel: null, open: new Set(), packs: null, busy: false, pack: null };
+const state = { course: null, sel: null, open: new Set(), files: null, packs: null, busy: false, pack: null };
 
-// The course tab: the active tab if it is a Canvas course, else the most recently used one.
+// The course tab: the active tab if it is a Canvas course, else the most
+// recently used one. Safari has no lastAccessed (and the panel is a window of
+// its own there): a course tab shown in a window comes first.
 async function findCourseTab() {
   const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (COURSE_URL.test(active?.url || '')) return active;
   const tabs = await chrome.tabs.query({ url: 'https://*.instructure.com/courses/*' });
-  return tabs.sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0))[0];
+  return tabs.sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0) || b.active - a.active)[0];
 }
 
 function setStatus(html, tone = '') {
@@ -87,12 +92,14 @@ async function scan() {
     if (!tab) {
       $('course').textContent = 'Canvas to AI';
       $('code').textContent = '';
-      message('Open a course in Canvas, then press <b>Scan again</b>.');
+      // Safari shows an extension a tab's address only on websites the student allowed it on.
+      message(`Open a course in Canvas, then press <b>Scan again</b>.${SAVES_FILES ? '' : SAFARI_SITES}`);
       return;
     }
     const canvas = await tabCanvas(tab.id);
     const course = await scanCourse(canvas, COURSE_URL.exec(tab.url)[1], { onProgress: (text) => setStatus(text) });
-    Object.assign(state, { course, sel: createSelection(course), open: new Set(), packs: createPackBuilder({ files: canvasFiles(canvas), pdf }), pack: null });
+    const files = canvasFiles(canvas);
+    Object.assign(state, { course, sel: createSelection(course), open: new Set(), files, packs: createPackBuilder({ files, pdf }), pack: null });
     $('course').textContent = course.name;
     $('code').textContent = course.code;
     $('folders').innerHTML = folderCards(course, state.sel, state.open);
@@ -236,13 +243,43 @@ const folderDir = (course, folder) => `Canvas/${safe(course.name)}/${String(cour
 // another course of the same name): Chrome adds " (1)" to the new one.
 const download = (url, filename) => chrome.downloads.download({ url, filename, conflictAction: 'uniquify', saveAs: false });
 const LOOKUPS = 6; // as the scan: well under Canvas's rate limit
+const MAX_ZIP = 500 * 1024 * 1024; // Safari's zip is built in memory
 
-async function downloadTree(course, packs, entries) {
+// Where a download's files go. Chrome saves each one into Downloads, in its
+// folders. Safari has no downloads API: there the same tree goes into one zip,
+// saved to Downloads as <zipName> by save(), up to MAX_ZIP.
+async function saver(files, zipName) {
+  if (SAVES_FILES) {
+    return { fits: () => true, add: (path, src) => download(typeof src === 'string' ? src : URL.createObjectURL(src), path), save: async () => {}, where: (dir) => `Downloads › ${dir}` };
+  }
+  const { default: JSZip } = await import('jszip');
+  const zip = new JSZip();
+  let bytes = 0;
+  return {
+    fits: (size) => bytes + size <= MAX_ZIP,
+    async add(path, src) {
+      const data = typeof src === 'string' ? await files.bytes(src) : src; // a Canvas download link, or a Blob
+      bytes += data.byteLength ?? data.size;
+      zip.file(path, data);
+    },
+    async save() {
+      const blob = await zip.generateAsync({ type: 'blob', compression: 'STORE' }); // files are mostly compressed already
+      const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: zipName });
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 60_000);
+    },
+    where: () => `Downloads › ${zipName}`,
+  };
+}
+
+async function downloadTree(course, files, packs, entries) {
+  const out = await saver(files, `Canvas - ${safe(course.name)}.zip`);
   const wanted = entries.filter(({ item }) => !item.locked && item.kind !== 'link');
   const place = pathAllocator(); // files and pages share the folders: no name is used twice
-  let files = 0;
+  let saved = 0;
   let pages = 0;
   let locked = 0;
+  let tooBig = 0;
   // Download links are looked up ahead, LOOKUPS at a time; files are still
   // handed to Chrome (which fetches several at once) in the course's order.
   const limit = limiter(LOOKUPS);
@@ -253,7 +290,7 @@ async function downloadTree(course, packs, entries) {
     if (item.kind === 'page') {
       const path = place(dir, `${safe(item.title)}.md`, `page:${item.key}`);
       const md = `# ${item.title}\n\n${htmlToMd(item.html)}\n`;
-      await download(URL.createObjectURL(new Blob([md], { type: 'text/markdown' })), path);
+      await out.add(path, new Blob([md], { type: 'text/markdown' }));
       pages++;
       continue;
     }
@@ -262,15 +299,24 @@ async function downloadTree(course, packs, entries) {
       locked++;
       continue;
     }
+    if (!out.fits(info.size)) {
+      tooBig++;
+      continue;
+    }
     const path = place(dir, safe(info.name), `file:${item.id}`);
     if (!path) continue; // the same file twice in one folder
-    await download(info.url, path);
-    files++;
+    await out.add(path, info.url);
+    saved++;
+  }
+  if (!SAVES_FILES && (saved || pages)) {
+    setStatus('Saving the zip…');
+    await out.save();
   }
   const skipped = entries.length - wanted.length;
   setStatus(
-    `Downloading ${files} ${files === 1 ? 'file' : 'files'}${pages ? ` and ${pages} ${pages === 1 ? 'page' : 'pages'}` : ''} to Downloads › Canvas › ${esc(safe(course.name))}.` +
+    `${SAVES_FILES ? 'Downloading' : 'Saved'} ${saved} ${saved === 1 ? 'file' : 'files'}${pages ? ` and ${pages} ${pages === 1 ? 'page' : 'pages'}` : ''} to ${esc(out.where(`Canvas › ${safe(course.name)}`))}.` +
       (locked ? ` ${locked} ${locked === 1 ? 'is' : 'are'} locked.` : '') +
+      (tooBig ? ` ${tooBig} ${tooBig === 1 ? 'was' : 'were'} left out: the zip stops at ${MAX_ZIP / 1024 / 1024} MB, so download fewer weeks at a time.` : '') +
       (skipped ? ` ${skipped} ${skipped === 1 ? 'link or locked item was' : 'links or locked items were'} skipped.` : ''),
     'done',
   );
@@ -278,15 +324,17 @@ async function downloadTree(course, packs, entries) {
 
 // The ⋯ menu's actions. A scan can start while one runs: each keeps the
 // course it began with.
-const downloadPicked = ({ course, packs, sel }) => downloadTree(course, packs, sel.picked());
-const downloadCourse = ({ course, packs, sel }) => downloadTree(course, packs, sel.all());
+const downloadPicked = ({ course, files, packs, sel }) => downloadTree(course, files, packs, sel.picked());
+const downloadCourse = ({ course, files, packs, sel }) => downloadTree(course, files, packs, sel.all());
 
-async function saveWithPictures({ course }) {
+async function saveWithPictures({ course, files }) {
   const pack = await currentPack();
   const folder = `Canvas/${safe(course.name)} - for AI`;
-  await download(URL.createObjectURL(new Blob([pack.markdown], { type: 'text/markdown' })), `${folder}/course.md`);
-  for (const img of pack.images) await download(img.url ?? URL.createObjectURL(img.blob), `${folder}/images/${img.name}`);
-  setStatus(`Saved to Downloads › ${esc(folder)}. Drag <b>course.md</b> and the <b>images</b> folder into the chat.`, 'done');
+  const out = await saver(files, `Canvas - ${safe(course.name)} - for AI.zip`);
+  await out.add(`${folder}/course.md`, new Blob([pack.markdown], { type: 'text/markdown' }));
+  for (const img of pack.images) await out.add(`${folder}/images/${img.name}`, img.url ?? img.blob);
+  await out.save();
+  setStatus(`Saved to ${esc(out.where(folder.replace('/', ' › ')))}. ${SAVES_FILES ? '' : 'Open the zip, then '}Drag <b>course.md</b> and the <b>images</b> folder into the chat.`, 'done');
 }
 
 function clearPicks({ course, sel }) {
