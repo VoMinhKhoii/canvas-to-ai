@@ -24,7 +24,7 @@ converted on their computer.
 | Code and data | 60+ languages, Jupyter notebooks, `Dockerfile`, `Makefile`, JSON/YAML/XML |
 | Archives | `.zip`: the file list and every readable file inside; dependencies, build output and generated boilerplate left out |
 | Captions | `.vtt`, `.srt` as a transcript |
-| Canvas | pages, assignments, discussions, announcements, syllabus (tables kept), external links |
+| Canvas | pages, assignments, discussions, announcements, syllabus (tables kept), external links, your own submissions |
 
 Video, audio, Apple iWork files and other archives are listed under "Not included" with the
 reason.

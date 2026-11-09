@@ -110,6 +110,58 @@ test('announcements that fail for another reason fail the scan', async () => {
   await assert.rejects(scanCourse(canvas, 7), { status: 500 });
 });
 
+const SUBMISSIONS = `${C}/students/submissions?student_ids[]=self&include[]=assignment&per_page=100`;
+
+test("the student's own submissions are a folder with a section per assignment", async () => {
+  const course = await scanCourse(fakeCanvas({
+    ...routes,
+    [SUBMISSIONS]: [
+      { submission_type: 'online_upload', assignment: { name: 'Assignment 1 ' }, attachments: [{ id: 501, display_name: 'report.pdf', size: 900, url: 'https://x.instructure.com/files/501/download?verifier=v', locked_for_user: false }, { id: 502, display_name: 'code.zip', url: 'https://x.instructure.com/files/502/download?verifier=v', locked_for_user: true, lock_explanation: 'Locked <b>now</b>' }] },
+      { submission_type: 'online_text_entry', assignment: { name: 'Reflection' }, body: '<p>I learned a lot.</p>' },
+      { submission_type: 'online_url', assignment: { name: 'Portfolio' }, url: 'https://me.test/portfolio' },
+      { submission_type: 'online_quiz', assignment: { name: 'Quiz 1' }, body: 'user: 1, quiz: 2, score: 9' },
+      { submission_type: null, assignment: { name: 'Not handed in' }, attachments: [] },
+    ],
+  }), 7);
+  const folder = course.folders.find((f) => f.id === 'submissions');
+  assert.equal(folder.title, 'My submissions');
+  assert.deepEqual(folder.sections.map((s) => s.title), ['Assignment 1', 'Reflection', 'Portfolio']);
+  const [upload, text, url] = folder.sections;
+  assert.deepEqual(upload.items.map((i) => [i.kind, i.id, i.fileName, i.locked]), [['file', 501, 'report.pdf', ''], ['file', 502, 'code.zip', 'Locked now']]);
+  assert.deepEqual(upload.items[0].details, { name: 'report.pdf', size: 900, url: 'https://x.instructure.com/files/501/download?verifier=v', locked: '' });
+  assert.deepEqual(text.items.map((i) => [i.kind, i.html]), [['page', '<p>I learned a lot.</p>']]);
+  assert.equal(url.items[0].url, 'https://me.test/portfolio');
+  assert.deepEqual(upload.items.concat(text.items, url.items).map((i) => i.key), ['submissions:0', 'submissions:1', 'submissions:2', 'submissions:3']);
+});
+
+test('a submitted file whose link is not on a Canvas file host cannot be picked', async () => {
+  const course = await scanCourse(fakeCanvas({
+    ...routes,
+    [SUBMISSIONS]: [{ submission_type: 'online_upload', assignment: { name: 'A1' }, attachments: [{ id: 503, display_name: 'x.pdf', url: 'https://evil.example/x.pdf', locked_for_user: false }] }],
+  }), 7);
+  const [item] = course.folders.find((f) => f.id === 'submissions').sections[0].items;
+  assert.equal(item.locked, 'Locked');
+  assert.equal(item.details.url, '');
+});
+
+test('a course that refuses the submissions listing is still read', async () => {
+  for (const status of [401, 403, 404]) {
+    const canvas = fakeCanvas(routes);
+    const get = canvas.get;
+    canvas.get = (url) => (url === SUBMISSIONS ? Promise.reject(Object.assign(new Error('no'), { status })) : get(url));
+    const course = await scanCourse(canvas, 7);
+    assert.ok(!course.folders.some((f) => f.id === 'submissions'));
+    assert.ok(course.folders.some((f) => f.id === 'm1'));
+  }
+});
+
+test('a submissions listing that fails for another reason fails the scan', async () => {
+  const canvas = fakeCanvas(routes);
+  const get = canvas.get;
+  canvas.get = (url) => (url === SUBMISSIONS ? Promise.reject(Object.assign(new Error('Canvas answered 500'), { status: 500 })) : get(url));
+  await assert.rejects(scanCourse(canvas, 7), { status: 500 });
+});
+
 test('a course closed to this student fails with the 403, for the panel to explain', async () => {
   const canvas = { get: (url) => Promise.reject(refused(url)) };
   await assert.rejects(scanCourse(canvas, 7), { status: 403 });

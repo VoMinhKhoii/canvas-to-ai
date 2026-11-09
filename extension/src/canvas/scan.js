@@ -12,6 +12,7 @@
 
 import { limiter } from '../limit.js';
 import { lockedReason } from './locked.js';
+import { isCanvasFileUrl } from './tab-adapter.js';
 
 const LIMIT = 6; // requests in flight, well under Canvas's rate limit
 const PAGE_TYPES = new Set(['Page', 'Assignment', 'Discussion']);
@@ -30,12 +31,15 @@ export async function scanCourse(canvas, courseId, { onProgress = () => {} } = {
   };
   const api = `/api/v1/courses/${courseId}`;
   onProgress('Reading the course…');
-  const [course, modules, announcements] = await Promise.all([
+  const [course, modules, announcements, submissions] = await Promise.all([
     get(`${api}?include[]=syllabus_body`).then((r) => r.data),
     getAll(`${api}/modules?include[]=items&include[]=content_details&per_page=100`),
     // A course can close its announcements (403) and still open everything
     // else. Any other failure is real: the scan must not pass without them.
     getAll(`${api}/discussion_topics?only_announcements=true&per_page=100`).catch((e) => (e.status === 403 ? [] : Promise.reject(e))),
+    // The student's own latest submissions. A course that refuses this listing
+    // (Canvas says 401 or 403 to a logged-in student) is otherwise still open.
+    getAll(`${api}/students/submissions?student_ids[]=self&include[]=assignment&per_page=100`).catch((e) => ([401, 403, 404].includes(e.status) ? [] : Promise.reject(e))),
   ]);
 
   // Every module's items first, so a page that links to a file the course
@@ -92,6 +96,21 @@ export async function scanCourse(canvas, courseId, { onProgress = () => {} } = {
     }
   }
 
+  // One assignment's latest submission. `body` is only the student's work on a
+  // text entry: on a quiz Canvas fills it with a score summary.
+  async function submissionSection(s) {
+    const text = s.submission_type === 'online_text_entry' ? await pageWithFiles('Submitted text', s.body) : [];
+    const link = s.submission_type === 'online_url' && s.url ? [{ kind: 'link', title: 'Submitted link', url: s.url }] : [];
+    // The listing's download link is the one to keep: the link /api/v1/files/:id
+    // gives for a submitted file did not download on RMIT's Canvas.
+    const files = (s.attachments ?? []).map((a) => {
+      const url = isCanvasFileUrl(a.url) ? a.url : '';
+      const locked = lockedReason(a, a.locked_for_user || !url);
+      return { kind: 'file', id: a.id, title: a.display_name, fileName: a.display_name, locked, details: { name: a.display_name, size: a.size ?? 0, url, locked } };
+    });
+    return { title: s.assignment?.name?.trim() || 'Assignment', items: [...text, ...link, ...files] };
+  }
+
   let read = 0;
   const folders = await Promise.all(
     modules.map(async (m, k) => {
@@ -113,6 +132,7 @@ export async function scanCourse(canvas, courseId, { onProgress = () => {} } = {
   ).flat();
   folders.push({ id: 'announcements', kind: 'announcements', title: 'Announcements', sections: [{ title: null, items: announcementItems }] });
   folders.push({ id: 'syllabus', kind: 'syllabus', title: 'Syllabus', sections: [{ title: null, items: await pageWithFiles('Syllabus', course.syllabus_body) }] });
+  folders.push({ id: 'submissions', kind: 'submissions', title: 'My submissions', sections: await Promise.all(submissions.map(submissionSection)) });
 
   // Drop empty sections and folders; give every item an id unique in the course.
   const kept = [];

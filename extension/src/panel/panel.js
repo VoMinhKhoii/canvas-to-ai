@@ -283,7 +283,7 @@ async function downloadTree(course, files, packs, entries) {
   // Download links are looked up ahead, LOOKUPS at a time; files are still
   // handed to Chrome (which fetches several at once) in the course's order.
   const limit = limiter(LOOKUPS);
-  const jobs = wanted.map((entry) => ({ ...entry, lookup: entry.item.kind === 'page' ? null : limit(() => packs.meta(entry.item.id)).catch(() => null) }));
+  const jobs = wanted.map((entry) => ({ ...entry, lookup: entry.item.kind === 'page' ? null : limit(() => packs.meta(entry.item.id, entry.item.details)).catch(() => null) }));
   for (const [n, { folder, section, item, lookup }] of jobs.entries()) {
     setStatus(`Downloading ${n + 1} of ${wanted.length}…`);
     const dir = [folderDir(course, folder), section.title && safe(section.title)].filter(Boolean).join('/');

@@ -22,13 +22,14 @@ const PARALLEL = 3;
 export function createPackBuilder({ files, pdf }) {
   const metas = new Map(); // file id → Promise<meta>
   const conversions = new Map(); // file id → Promise<{ md, assets }>
-  const meta = (id) => {
+  const meta = (id, known) => { // known: details the scan already has (item.details)
+    if (known) return Promise.resolve(known);
     if (!metas.has(id)) metas.set(id, files.meta(id).catch((e) => (metas.delete(id), Promise.reject(e))));
     return metas.get(id);
   };
 
   async function convertFile(item) {
-    const info = await meta(item.id);
+    const info = await meta(item.id, item.details);
     if (info.locked) throw new Error(info.locked);
     if (info.size > MAX_BYTES) throw new Error('too large');
     const result = await convert(item.fileName, await files.bytes(info.url), { fileId: item.id, pdf });
@@ -95,7 +96,7 @@ export function createPackBuilder({ files, pdf }) {
       if (seen.has(item.id)) return '_(same file as above)_';
       seen.add(item.id);
       if (isImage(item.fileName)) {
-        const info = await meta(item.id);
+        const info = await meta(item.id, item.details);
         if (info.locked) throw new Error(info.locked);
         return canvasPicture(item.id, info);
       }
