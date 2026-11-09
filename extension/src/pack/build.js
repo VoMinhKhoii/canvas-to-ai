@@ -22,14 +22,15 @@ const PARALLEL = 3;
 export function createPackBuilder({ files, pdf }) {
   const metas = new Map(); // file id → Promise<meta>
   const conversions = new Map(); // file id → Promise<{ md, assets }>
-  const meta = (id, known) => { // known: details the scan already has (item.details)
-    if (known) return Promise.resolve(known);
+  const lookup = (id) => {
     if (!metas.has(id)) metas.set(id, files.meta(id).catch((e) => (metas.delete(id), Promise.reject(e))));
     return metas.get(id);
   };
+  // An item carries its details when the scan already has them (item.details).
+  const meta = (item) => (item.details ? Promise.resolve(item.details) : lookup(item.id));
 
   async function convertFile(item) {
-    const info = await meta(item.id, item.details);
+    const info = await meta(item);
     if (info.locked) throw new Error(info.locked);
     if (info.size > MAX_BYTES) throw new Error('too large');
     const result = await convert(item.fileName, await files.bytes(info.url), { fileId: item.id, pdf });
@@ -78,7 +79,7 @@ export function createPackBuilder({ files, pdf }) {
     const pageImages = async (html) => {
       const ids = [...new Set([...(html ?? '').matchAll(/<img[^<>]+src="[^"]*\/files\/(\d+)/g)].map((m) => Number(m[1])))]; // [^<>]: a run of "<img" with no ">" is not rescanned
       const found = new Map();
-      await Promise.all(ids.map(async (id) => found.set(id, await meta(id).catch(() => null))));
+      await Promise.all(ids.map(async (id) => found.set(id, await lookup(id).catch(() => null))));
       return (img) => {
         const id = Number(/\/files\/(\d+)/.exec(img.getAttribute('src') || '')?.[1]);
         const info = found.get(id);
@@ -96,7 +97,7 @@ export function createPackBuilder({ files, pdf }) {
       if (seen.has(item.id)) return '_(same file as above)_';
       seen.add(item.id);
       if (isImage(item.fileName)) {
-        const info = await meta(item.id, item.details);
+        const info = await meta(item);
         if (info.locked) throw new Error(info.locked);
         return canvasPicture(item.id, info);
       }

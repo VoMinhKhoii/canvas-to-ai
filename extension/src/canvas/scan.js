@@ -12,7 +12,7 @@
 
 import { limiter } from '../limit.js';
 import { lockedReason } from './locked.js';
-import { isCanvasFileUrl } from './tab-adapter.js';
+import { fileDetails } from './file.js';
 
 const LIMIT = 6; // requests in flight, well under Canvas's rate limit
 const PAGE_TYPES = new Set(['Page', 'Assignment', 'Discussion']);
@@ -38,7 +38,7 @@ export async function scanCourse(canvas, courseId, { onProgress = () => {} } = {
     // else. Any other failure is real: the scan must not pass without them.
     getAll(`${api}/discussion_topics?only_announcements=true&per_page=100`).catch((e) => (e.status === 403 ? [] : Promise.reject(e))),
     // The student's own latest submissions. A course that refuses this listing
-    // (Canvas says 401 or 403 to a logged-in student) is otherwise still open.
+    // (Canvas can say 401, 403 or 404 to a logged-in student) is otherwise still open.
     getAll(`${api}/students/submissions?student_ids[]=self&include[]=assignment&per_page=100`).catch((e) => ([401, 403, 404].includes(e.status) ? [] : Promise.reject(e))),
   ]);
 
@@ -104,9 +104,8 @@ export async function scanCourse(canvas, courseId, { onProgress = () => {} } = {
     // The listing's download link is the one to keep: the link /api/v1/files/:id
     // gives for a submitted file did not download on RMIT's Canvas.
     const files = (s.attachments ?? []).map((a) => {
-      const url = isCanvasFileUrl(a.url) ? a.url : '';
-      const locked = lockedReason(a, a.locked_for_user || !url);
-      return { kind: 'file', id: a.id, title: a.display_name, fileName: a.display_name, locked, details: { name: a.display_name, size: a.size ?? 0, url, locked } };
+      const details = fileDetails(a);
+      return { kind: 'file', id: a.id, title: details.name, fileName: details.name, locked: details.locked, details };
     });
     return { title: s.assignment?.name?.trim() || 'Assignment', items: [...text, ...link, ...files] };
   }

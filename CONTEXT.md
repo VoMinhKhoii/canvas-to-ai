@@ -6,7 +6,7 @@ Words used in code, tests and the interface. Keep them exact.
 - **Folder**: one card in the side panel. A Canvas module ("Week 1/Topic 1 - …", "Getting Started"), or the course's announcements, or its syllabus, or the student's own submissions.
 - **Section**: a run of items inside a folder, under one of the lecturer's Canvas sub-headers ("Pre-class", "In-class", "Tutorial", "Lab"), or under one assignment in the student's submissions. Items before the first sub-header form a section with no title.
 - **Item**: one thing a student can pick:
-  - a **file** (PDF, slides, Word, web page, code, image, zip…), known by its Canvas file id;
+  - a **file** (PDF, slides, Word, web page, code, image, zip…), known by its Canvas file id; a submitted file also carries the file details from the submissions listing, and the pack and downloads use those instead of looking the id up;
   - a **page**: Canvas page, assignment, discussion, announcement or syllabus text, held as HTML;
   - a **link**: an external URL the lecturer listed (lecture recording, reading).
 - **Locked**: an item Canvas will not give this student yet (an unlock date, a prerequisite). It is shown but cannot be picked.
