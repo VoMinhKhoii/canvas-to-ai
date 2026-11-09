@@ -1,6 +1,6 @@
 # Canvas to AI: privacy policy
 
-Last updated: 29 October 2026
+Last updated: 9 November 2026
 
 Canvas to AI is a Chrome extension that reads a Canvas course you have open and turns the
 materials you pick into text you can paste into an AI chat, or files in your Downloads folder.
@@ -11,6 +11,7 @@ When you press **I understand** on the terms card and then scan a course, the ex
 from the Canvas site in your open tab and with your own login:
 
 - the course's name, modules, pages, announcements, syllabus and file list;
+- your own latest submission for each assignment in that course;
 - the files you pick (slides, PDFs, documents, spreadsheets, code and so on), to convert them.
 
 Nothing is read before you agree to the terms card.

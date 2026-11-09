@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-const { isCanvasFileUrl } = await import('../src/canvas/tab-adapter.js');
+const { isCanvasFileUrl } = await import('../src/canvas/file.js');
 
 // The real tab-proxy.js listener, in a fake Canvas tab whose fetch lands on `landed`.
 let listener;

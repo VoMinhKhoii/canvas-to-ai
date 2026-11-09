@@ -167,3 +167,12 @@ test('control characters never reach the pack', async () => {
   const { markdown } = await createPackBuilder({ files: fakeFiles(store), pdf }).build(course, [{ folder: week1, section: lab, item: file('t', 32, 'notes.txt') }]);
   assert.match(markdown, /tab\there, bell and junk/);
 });
+
+test('a file the scan already has details for is fetched by its own link, with no lookup', async () => {
+  const files = fakeFiles({ 601: { name: 'report.txt', bytes: new TextEncoder().encode('My report.').buffer } });
+  const item = file('s', 601, 'report.txt', 'report.txt', { details: { name: 'report.txt', size: 10, url: 'https://files.test/601', locked: '' } });
+  const { markdown } = await createPackBuilder({ files, pdf }).build(course, [{ folder: week1, section: pre, item }]);
+  assert.match(markdown, /My report\./);
+  assert.equal(files.calls.meta, 0);
+  assert.equal(files.calls.bytes, 1);
+});
