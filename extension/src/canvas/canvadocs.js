@@ -18,10 +18,19 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export function canvadocs(site, { fetch: send = (...a) => fetch(...a), sleep = wait } = {}) {
   const limit = limiter(PARALLEL);
-  // fetch fails outright only when the connection does: that stops the run (stops.js).
-  const get = (url, options) => send(url, options).catch(() => {
+  // A request, or reading its answer, fails outright only when the connection
+  // does; Canvas says "slow down" with a 429 or a 403 that says so. Both stop
+  // the run (stops.js), to continue later, rather than lose the notes.
+  const offline = () => {
     throw Object.assign(new Error('Lost the connection to Canvas. Check your internet, then try again.'), { offline: true });
-  });
+  };
+  async function get(url, options) {
+    const res = await send(url, options).catch(offline);
+    if (res.status === 429 || (res.status === 403 && /rate limit exceeded/i.test(await res.clone().text().catch(() => '')))) {
+      throw Object.assign(new Error('Canvas asked to slow down. Wait a few minutes and try again.'), { throttled: true });
+    }
+    return res;
+  }
   // The session's address, e.g. https://canvadocs-syd.instructure.com/1/sessions/<id>.
   async function session(previewUrl) {
     const res = await get(new URL(previewUrl, site), { credentials: 'include' });
@@ -34,7 +43,7 @@ export function canvadocs(site, { fetch: send = (...a) => fetch(...a), sleep = w
     annotations: (previewUrl) => limit(async () => {
       const res = await get(`${await session(previewUrl)}/annotations`);
       if (!res.ok) throw new Error('Canvas did not list the notes on it');
-      return (await res.json()).data?.length ?? 0;
+      return JSON.parse(await res.text().catch(offline)).data?.length ?? 0;
     }),
     annotatedPdf: (previewUrl) => limit(async () => {
       const base = await session(previewUrl);

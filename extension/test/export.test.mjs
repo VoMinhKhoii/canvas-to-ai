@@ -515,10 +515,13 @@ test('plan: each course\'s grades page has its total, from one listing of enroll
 
 // ── lecturers' notes (Canvadocs) ──
 // A Canvadocs host: preview links open sessions; notes: { session id: count }.
-function fakeDocs(notes, { readyAfter = 1, landing } = {}) {
+function fakeDocs(notes, { readyAfter = 1, landing, answer } = {}) {
   const asked = [];
   let polls = 0;
-  const res = (url, body, ok = true) => ({ url, ok, json: async () => body });
+  const res = (url, body, ok = true) => {
+    const r = { url, ok, status: ok ? 200 : 404, json: async () => body, text: async () => JSON.stringify(body), ...answer?.(url) };
+    return { ...r, clone: () => r };
+  };
   const docsHost = 'https://canvadocs-syd.instructure.com';
   return {
     asked,
@@ -550,6 +553,13 @@ test('canvadocs: asks for the annotated PDF and waits until it is ready', async 
   assert.equal(await docs.annotatedPdf('/api/v1/canvadoc_session?id=s1'), 'https://canvadocs-syd.instructure.com/1/sessions/s1/annotated.pdf');
   assert.ok(host.asked.includes('POST https://canvadocs-syd.instructure.com/1/sessions/s1/annotated.pdf'));
   assert.equal(host.asked.filter((a) => a.endsWith('is_ready')).length, 3);
+});
+
+test('canvadocs: Canvas slowing down, or the connection dropping mid-answer, stops the run instead of losing the notes', async () => {
+  const slow = fakeDocs({}, { answer: (url) => (url.endsWith('/view') ? { ok: false, status: 403, text: async () => '403 Forbidden (Rate Limit Exceeded)' } : {}) });
+  await assert.rejects(canvadocs('https://school.instructure.com', { fetch: slow.fetch }).annotations('/api/v1/canvadoc_session?id=s1'), (e) => e.throttled === true);
+  const cut = fakeDocs({ s1: 2 }, { answer: (url) => (url.endsWith('/annotations') ? { text: () => Promise.reject(new TypeError('network')) } : {}) });
+  await assert.rejects(canvadocs('https://school.instructure.com', { fetch: cut.fetch }).annotations('/api/v1/canvadoc_session?id=s1'), (e) => e.offline === true);
 });
 
 test('canvadocs: a preview link that lands anywhere but a Canvadocs session is refused', async () => {
@@ -757,6 +767,28 @@ test('plan: names of 4-byte letters are cut whole, short enough for the disk', a
     }
   }
   assert.ok(plan.entries.some((e) => e.path.includes('𝐍𝐞𝐨')));
+});
+
+test('run: the login ending (or the connection, after its retries) while saving stops the run: Continue, not Done with failures', async () => {
+  const saved = [];
+  const save = async (e) => {
+    if (e.path === 'f3') throw Object.assign(new Error('Your Canvas login ended. Log in…'), { loggedOut: true });
+    saved.push(e.path);
+  };
+  const result = await runExport({ entries: Array.from({ length: 10 }, (_, i) => file(`f${i}`)), notSaved: [] }, { save, done: new Set() });
+  assert.equal(result.stopped, true);
+  assert.equal(result.fatal.message, 'Your Canvas login ended');
+  assert.deepEqual(result.failed, []);
+  assert.ok(saved.length < 9 && !saved.includes('Export report.md'));
+});
+
+test('saver: a login check that could not be made fails that save: the page is not kept as the file', async () => {
+  const api = fakeDownloads((n, a) => { a.states.set(n, { state: 'complete', mime: 'text/html' }); finish(n, a); });
+  api.removeFile = async () => {};
+  const saver = chromeSaver(api, 'R', new AbortController().signal, quick({ loggedIn: async () => { throw Object.assign(new Error('gone'), { offline: true }); } }));
+  await assert.rejects(saver.save(file('notes.pdf')), (e) => e.offline === true);
+  assert.deepEqual(api.erased, []); // its row is kept: tidy() finds it was a page and saves it again
+  saver.close();
 });
 
 test('run: files over the limit wait for a yes, and are listed in the report', async () => {

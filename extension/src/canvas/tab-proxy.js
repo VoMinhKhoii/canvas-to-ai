@@ -33,10 +33,13 @@ async function canvasQuery(query, variables) {
   return answer(res, '/api/graphql');
 }
 
-// fetch fails outright only when the connection does: the panel waits that out.
-const send = (target, options) => fetch(target, options).catch(() => {
+// fetch, or reading the answer's body, fails outright only when the
+// connection does: the panel waits that out.
+const offline = () => {
   throw Object.assign(new Error('No connection to Canvas'), { offline: true });
-});
+};
+const send = (target, options) => fetch(target, options).catch(offline);
+const textOf = (res) => res.text().catch(offline);
 
 async function answer(res, path) {
   // A redirect (an expired login, a misconfigured site) must not make another
@@ -50,13 +53,13 @@ async function answer(res, path) {
     // Canvas says "slow down" with a 403 (429 on some sites), the same status
     // as "not for you", and "log in first" with a 401, as it does "not for
     // you" on some listings: only the body tells them apart.
-    const body = [401, 403].includes(res.status) ? await res.text() : '';
+    const body = [401, 403].includes(res.status) ? await textOf(res) : '';
     const throttled = res.status === 429 || (res.status === 403 && /rate limit exceeded/i.test(body));
     const loggedOut = res.status === 401 && /unauthenticated|authorization required/i.test(body);
     return { status: res.status, ...quota, ...(throttled && { throttled }), ...(loggedOut && { loggedOut }) };
   }
   // Canvas prefixes JSON for cookie sessions with "while(1);".
-  const data = JSON.parse((await res.text()).replace(/^while\(1\);/, ''));
+  const data = JSON.parse((await textOf(res)).replace(/^while\(1\);/, ''));
   const next = /<([^>]+)>;\s*rel="next"/.exec(res.headers.get('Link') || '')?.[1] ?? null;
   return { status: res.status, data, next, ...quota };
 }

@@ -105,7 +105,12 @@ export function exportFlow({ area, bar, setBusy, close }) {
     const where = `Downloads › ${run.root}`;
     draw(exportRunning(`Saving to ${where}…`), { 'export-stop': stop });
     await exportStore.put('run', run);
-    const loggedIn = () => canvas.get('/api/v1/users/self').then(() => true, (e) => !e.loggedOut);
+    // Only Canvas answering proves the login holds; a check that could not be
+    // made (no connection, no tab) fails that save, so the file is saved again.
+    const loggedIn = () => canvas.get('/api/v1/users/self').then(() => true, (e) => {
+      if (e.loggedOut) return false;
+      throw e;
+    });
     const saver = chromeSaver(chrome.downloads, run.root, signal, { loggedIn });
     const done = new Set((await exportStore.get('saved')) ?? []);
     for (const path of await saver.tidy()) done.add(path);

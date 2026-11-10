@@ -9,7 +9,7 @@
 // memory: the browser writes each file to disk itself, a few at a time.
 import { scanCourse, scanGroup } from './canvas/scan.js';
 import { readMessages } from './canvas/talk.js';
-import { stopsTheRun } from './canvas/stops.js';
+import { stopsTheRun, stopReason } from './canvas/stops.js';
 import { readAll } from './canvas/read.js';
 import { htmlToMd } from './pack/formats/html-to-md.js';
 import { pathAllocator, safe } from './pack/names.js';
@@ -214,7 +214,7 @@ function report({ notSaved }, leftOut, failed) {
 }
 
 // save(entry) resolves once the entry is on disk; a rejection with `fatal`
-// (the disk is full) ends the run. done: paths already saved, added to as it
+// (the disk is full) or one that stops the run (stops.js) ends the run. done: paths already saved, added to as it
 // goes, so a stopped export can continue where it left off.
 export async function runExport(plan, { save, done, signal, big = false, onProgress = () => {} }) {
   const leftOut = big ? [] : plan.entries.filter((e) => e.size > BIG_FILE);
@@ -232,7 +232,9 @@ export async function runExport(plan, { save, done, signal, big = false, onProgr
           await save(entry);
           done.add(entry.path);
         } catch (e) {
-          if (e.fatal) fatal = e;
+          // The disk full, or Canvas gone for every entry left (the login
+          // ended, no connection): stop, to continue later.
+          if (e.fatal || stopsTheRun(e)) fatal ??= e.fatal ? e : Object.assign(new Error(stopReason(e)), { fatal: true });
           else if (!signal?.aborted) missed.push({ entry, reason: e.message });
         }
         onProgress(++finished, todo.length);

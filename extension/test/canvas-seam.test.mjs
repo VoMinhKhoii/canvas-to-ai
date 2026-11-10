@@ -53,6 +53,16 @@ test('proxy: an ended login is told apart from a listing closed to the student',
   landed = undefined;
 });
 
+test('proxy: the connection dropping while the answer is read is "offline", not a failed request', async () => {
+  landed = undefined;
+  answer = { text: () => Promise.reject(new TypeError('network error')) };
+  assert.deepEqual(await ask('/api/v1/courses/1'), { error: 'No connection to Canvas', offline: true });
+  answer = { text: async () => 'while(1);{not json' };
+  const bad = await ask('/api/v1/courses/1');
+  assert.ok(bad.error && !bad.offline); // a broken answer is not a lost connection
+  answer = {};
+});
+
 test('proxy: the remaining quota comes with an answer', async () => {
   answer = { headers: new Headers({ 'X-Rate-Limit-Remaining': '612.25' }) };
   assert.equal((await ask('/api/v1/courses/1')).remaining, 612.25);
