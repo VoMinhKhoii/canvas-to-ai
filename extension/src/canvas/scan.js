@@ -12,13 +12,24 @@
 
 import { limiter } from '../limit.js';
 import { lockedReason } from './locked.js';
-import { fileDetails } from './file.js';
-import { threadHtml, feedbackHtml, gradesHtml, quizScoreHtml, readReplies } from './talk.js';
+import { fileDetails, asFileItem } from './file.js';
+import { feedbackHtml, gradesHtml, quizScoreHtml, repliesHtml } from './talk.js';
+import { readAll } from './read.js';
 import { stopsTheRun } from './stops.js';
 
 const LIMIT = 6; // requests in flight, well under Canvas's rate limit
 const PAGE_TYPES = new Set(['Page', 'Assignment', 'Discussion']);
 const CLOSED = [401, 403, 404]; // Canvas's ways of saying a course doesn't open this to a student
+
+// A scan's requests, a few at a time. optional(url): a listing the course
+// (or group) may close to students, read as empty when it does.
+function reader(canvas) {
+  const limit = limiter(LIMIT);
+  const get = (url) => limit(() => canvas.get(url));
+  const getAll = (url) => readAll(get, url);
+  const optional = (url) => getAll(url).catch((e) => (CLOSED.includes(e.status) && !stopsTheRun(e) ? [] : Promise.reject(e)));
+  return { get, getAll, optional };
+}
 
 // everything: also what sits outside the modules, quizzes, each submission's
 // grade, rubric, comments and earlier attempts, and a page of the course's
@@ -27,18 +38,7 @@ const CLOSED = [401, 403, 404]; // Canvas's ways of saying a course doesn't open
 // docs: Canvadocs (canvadocs.js), to find submitted files a lecturer wrote
 // notes on: each gets an annotated copy beside it.
 export async function scanCourse(canvas, courseId, { onProgress = () => {}, everything = false, replies = false, total = null, docs = null } = {}) {
-  const limit = limiter(LIMIT);
-  const get = (url) => limit(() => canvas.get(url));
-  const getAll = async (url) => {
-    const out = [];
-    for (let next = url; next; ) {
-      const page = await get(next);
-      out.push(...page.data);
-      next = page.next;
-    }
-    return out;
-  };
-  const optional = (url) => getAll(url).catch((e) => (CLOSED.includes(e.status) && !stopsTheRun(e) ? [] : Promise.reject(e)));
+  const { get, getAll, optional } = reader(canvas);
   const api = `/api/v1/courses/${courseId}`;
   onProgress('Reading the course…');
   const [course, modules, announcements, submissions, courseFiles] = await Promise.all([
@@ -94,25 +94,7 @@ export async function scanCourse(canvas, courseId, { onProgress = () => {}, ever
   }
 
   // A discussion's replies as HTML to follow its text, when they were asked for.
-  async function repliesTo(topicId) {
-    if (!replies) return '';
-    try {
-      return threadHtml((await get(`${api}/discussion_topics/${topicId}/view?include_new_entries=1`)).data);
-    } catch (e) {
-      if (stopsTheRun(e)) throw e;
-      if (e.status === 404) return anonymousReplies(topicId);
-      return `<p><em>Replies not available${e.status === 403 ? ': this discussion shows them only after you post' : ''}.</em></p>`;
-    }
-  }
-  // Canvas answers 404 to /view for an anonymous discussion; GraphQL has its replies.
-  async function anonymousReplies(topicId) {
-    try {
-      return threadHtml(await readReplies(canvas, topicId));
-    } catch (e) {
-      if (stopsTheRun(e)) throw e;
-      return '<p><em>Replies not available.</em></p>';
-    }
-  }
+  const repliesTo = async (topicId) => (replies ? repliesHtml(get, canvas, api, topicId) : '');
 
   // A quiz's text, and the student's score when Canvas keeps one.
   async function quizScore(quiz) {
@@ -158,12 +140,7 @@ export async function scanCourse(canvas, courseId, { onProgress = () => {}, ever
     const link = s.submission_type === 'online_url' && s.url ? [{ kind: 'link', title: 'Submitted link', url: s.url }] : [];
     // The listing's download link is the one to keep: the link /api/v1/files/:id
     // gives for a submitted file did not download on RMIT's Canvas.
-    const fileOf = (a, prefix = '') => {
-      const details = fileDetails(a);
-      const name = prefix + details.name;
-      return { kind: 'file', id: a.id, title: name, fileName: name, locked: details.locked, details: { ...details, name } };
-    };
-    const files = (s.attachments ?? []).map((a) => fileOf(a));
+    const files = (s.attachments ?? []).map((a) => asFileItem(a));
     const annotated = everything && docs ? (await Promise.all((s.attachments ?? []).filter((a) => a.preview_url).map((a) => annotatedCopy(s, a)))).filter(Boolean) : [];
     const feedback = everything ? feedbackHtml(s) : '';
     const graded = feedback ? [{ kind: 'page', title: 'Grade and feedback', html: feedback }] : [];
@@ -174,7 +151,7 @@ export async function scanCourse(canvas, courseId, { onProgress = () => {}, ever
       const at = `Attempt ${h.attempt}`;
       if (h.submission_type === 'online_text_entry') earlier.push(...(await pageWithFiles(`${at} - submitted text`, h.body)));
       if (h.submission_type === 'online_url' && h.url) earlier.push({ kind: 'link', title: `${at} - submitted link`, url: h.url });
-      for (const a of h.attachments ?? []) earlier.push(fileOf(a, `${at} - `));
+      for (const a of h.attachments ?? []) earlier.push(asFileItem(a, `${at} - ${a.display_name}`));
     }
     return { title: s.assignment?.name?.trim() || 'Assignment', items: [...text, ...link, ...files, ...annotated, ...graded, ...earlier] };
   }
@@ -271,22 +248,10 @@ export async function scanCourse(canvas, courseId, { onProgress = () => {}, ever
   return { id: String(courseId), name: course.name, code: course.course_code ?? '', folders: kept };
 }
 
-
 // A student group's own space (a course's group sets give each group one):
 // its files, by folder, its pages and its discussions.
 export async function scanGroup(canvas, group, { replies = false } = {}) {
-  const limit = limiter(LIMIT);
-  const get = (url) => limit(() => canvas.get(url));
-  const getAll = async (url) => {
-    const out = [];
-    for (let next = url; next; ) {
-      const page = await get(next);
-      out.push(...page.data);
-      next = page.next;
-    }
-    return out;
-  };
-  const optional = (url) => getAll(url).catch((e) => (CLOSED.includes(e.status) && !stopsTheRun(e) ? [] : Promise.reject(e)));
+  const { get, getAll, optional } = reader(canvas);
   const api = `/api/v1/groups/${group.id}`;
   const [files, folders, pages, topics] = await Promise.all([
     optional(`${api}/files?per_page=100`),
@@ -300,10 +265,7 @@ export async function scanGroup(canvas, group, { replies = false } = {}) {
     for (const item of items) sections.get(title).push(item);
   };
   const folderOf = new Map(folders.map((f) => [f.id, f.full_name.split('/').slice(1).join('/') || null])); // past "group files"
-  for (const f of files) {
-    const details = fileDetails(f);
-    add(folderOf.get(f.folder_id) ?? null, [{ kind: 'file', id: f.id, title: details.name, fileName: details.name, locked: details.locked, details }]);
-  }
+  for (const f of files) add(folderOf.get(f.folder_id) ?? null, [asFileItem(f)]);
   const text = async (title, url, field, more = '') => {
     try {
       const html = ((await get(url)).data[field] ?? '') + more;
@@ -314,21 +276,8 @@ export async function scanGroup(canvas, group, { replies = false } = {}) {
     }
   };
   add('Pages', (await Promise.all(pages.map((p) => text(p.title, `${api}/pages/${encodeURIComponent(p.url)}`, 'body')))).flat());
-  const thread = async (t) => {
-    if (!replies) return '';
-    try {
-      return threadHtml((await get(`${api}/discussion_topics/${t.id}/view?include_new_entries=1`)).data);
-    } catch (e) {
-      if (stopsTheRun(e)) throw e;
-      if (e.status !== 404) return '';
-      return readReplies(canvas, t.id).then(threadHtml, (x) => {
-        if (stopsTheRun(x)) throw x;
-        return '';
-      });
-    }
-  };
   const discussion = async (t) => {
-    const html = (t.message ?? '') + (await thread(t));
+    const html = (t.message ?? '') + (replies ? await repliesHtml(get, canvas, api, t.id) : '');
     return html.trim() ? [{ kind: 'page', title: t.title, html }] : [];
   };
   add('Discussions', (await Promise.all(topics.map(discussion))).flat());

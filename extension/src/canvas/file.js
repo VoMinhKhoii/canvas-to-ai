@@ -17,3 +17,11 @@ export function fileDetails(data) {
   const url = isCanvasFileUrl(data.url) ? data.url : '';
   return { name: data.display_name, size: data.size ?? 0, url, locked: lockedReason(data, data.locked_for_user || !url) };
 }
+
+// A Canvas file object as a Course item with its details, saved as `name`
+// (its own name unless given).
+export function asFileItem(data, name) {
+  const details = fileDetails(data);
+  const title = name ?? details.name;
+  return { kind: 'file', id: data.id, title, fileName: title, locked: details.locked, details: { ...details, name: title } };
+}

@@ -10,6 +10,7 @@
 import { scanCourse, scanGroup } from './canvas/scan.js';
 import { readMessages } from './canvas/talk.js';
 import { stopsTheRun } from './canvas/stops.js';
+import { readAll } from './canvas/read.js';
 import { htmlToMd } from './pack/formats/html-to-md.js';
 import { pathAllocator, safe } from './pack/names.js';
 
@@ -37,15 +38,7 @@ function fileName(name) {
 // The courses the student is or was enrolled in, current ones first. Canvas
 // gives a course closed by date without a name: there is nothing to read.
 export async function listCourses(canvas) {
-  const read = async (state) => {
-    const out = [];
-    for (let next = `/api/v1/courses?enrollment_state=${state}&include[]=term&per_page=100`; next; ) {
-      const page = await canvas.get(next);
-      out.push(...page.data);
-      next = page.next;
-    }
-    return out;
-  };
+  const read = (state) => readAll(canvas.get, `/api/v1/courses?enrollment_state=${state}&include[]=term&per_page=100`);
   const [current, past] = await Promise.all([read('active'), read('completed')]);
   const courses = new Map();
   for (const [list, isPast] of [[current, false], [past, true]]) {
@@ -141,37 +134,19 @@ export async function planExport(canvas, files, courses, { messages = false, rep
   }
   const messageFolder = (sections) => ({ id: 'messages', kind: 'messages', title: 'Messages', sections });
 
+  // A listing the export can do without (the run goes on without it), unless
+  // the failure stops the run.
+  const listing = (url) => readAll(canvas.get, url).catch((e) => (stopsTheRun(e) ? Promise.reject(e) : []));
+
   // Each course's total, from the student's enrollments: one listing for all
   // (none when every course was read before).
-  async function courseTotals() {
-    const totals = new Map();
-    try {
-      for (let next = '/api/v1/users/self/enrollments?type[]=StudentEnrollment&state[]=active&state[]=completed&per_page=100'; next; ) {
-        const page = await canvas.get(next);
-        for (const e of page.data) if (e.grades) totals.set(e.course_id, e.grades);
-        next = page.next;
-      }
-    } catch (e) {
-      if (stopsTheRun(e)) throw e; // otherwise the grades pages go without totals
-    }
-    return totals;
-  }
-  const totals = courses.some((c) => !known.courses?.[c.id]) ? await courseTotals() : new Map();
+  const enrollments = courses.some((c) => !known.courses?.[c.id]) ? await listing('/api/v1/users/self/enrollments?type[]=StudentEnrollment&state[]=active&state[]=completed&per_page=100') : [];
+  const totals = new Map(enrollments.filter((e) => e.grades).map((e) => [e.course_id, e.grades]));
 
   // The student's groups: each one's space goes in its course's folder.
   let groups = known.groups;
   if (!groups) {
-    groups = [];
-    try {
-      for (let next = '/api/v1/users/self/groups?per_page=100'; next; ) {
-        const page = await canvas.get(next);
-        groups.push(...page.data);
-        next = page.next;
-      }
-    } catch (e) {
-      if (stopsTheRun(e)) throw e;
-      groups = []; // otherwise the courses go without their groups
-    }
+    groups = await listing('/api/v1/users/self/groups?per_page=100');
     await keep('groups', groups);
   }
   const groupFolders = async (list) => (await Promise.all(list.map((g) => scanGroup(canvas, g, { replies })))).filter((f) => f.sections.length);
@@ -232,36 +207,36 @@ function report({ notSaved }, leftOut, failed) {
 export async function runExport(plan, { save, done, signal, big = false, onProgress = () => {} }) {
   const leftOut = big ? [] : plan.entries.filter((e) => e.size > BIG_FILE);
   const todo = plan.entries.filter((e) => !done.has(e.path) && (big || e.size <= BIG_FILE));
-  const failed = [];
-  let next = 0;
   let finished = 0;
   let fatal = null;
-  let queue = todo;
-  let missed = []; // entries that failed this pass
-  async function worker() {
-    while (next < queue.length && !fatal && !signal?.aborted) {
-      const entry = queue[next++];
-      try {
-        await save(entry);
-        done.add(entry.path);
-      } catch (e) {
-        if (e.fatal) fatal = e;
-        else if (!signal?.aborted) missed.push({ entry, reason: e.message });
+  // Saves `entries`, a few at a time; resolves to those that failed.
+  async function pass(entries) {
+    const missed = [];
+    let next = 0;
+    async function worker() {
+      while (next < entries.length && !fatal && !signal?.aborted) {
+        const entry = entries[next++];
+        try {
+          await save(entry);
+          done.add(entry.path);
+        } catch (e) {
+          if (e.fatal) fatal = e;
+          else if (!signal?.aborted) missed.push({ entry, reason: e.message });
+        }
+        onProgress(++finished, todo.length);
       }
-      onProgress(++finished, todo.length);
     }
+    await Promise.all(Array.from({ length: PARALLEL_SAVES }, worker));
+    return missed;
   }
-  await Promise.all(Array.from({ length: PARALLEL_SAVES }, worker));
+  let missed = await pass(todo);
   // One more go at what failed: a file server that dropped connections for a
   // few minutes midway has usually recovered by the end.
   if (missed.length && !fatal && !signal?.aborted) {
-    queue = missed.map((m) => m.entry);
-    missed = [];
-    next = 0;
-    finished -= queue.length; // counted again as they are tried again
-    await Promise.all(Array.from({ length: PARALLEL_SAVES }, worker));
+    finished -= missed.length; // counted again as they are tried again
+    missed = await pass(missed.map((m) => m.entry));
   }
-  for (const m of missed) failed.push({ title: m.entry.title, reason: m.reason });
+  const failed = missed.map((m) => ({ title: m.entry.title, reason: m.reason }));
   const stopped = Boolean(signal?.aborted || fatal);
   if (!stopped) {
     const md = report(plan, leftOut, failed);

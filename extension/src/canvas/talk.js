@@ -1,6 +1,7 @@
 // What people wrote, as page HTML: discussion replies, grades and teacher
 // comments, inbox messages.
-import { fileDetails } from './file.js';
+import { asFileItem } from './file.js';
+import { readAll } from './read.js';
 import { stopsTheRun } from './stops.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
@@ -49,6 +50,22 @@ export async function readReplies(canvas, topicId) {
   const view = [];
   for (const n of nodes) (entries.get(n.parentId)?.replies ?? view).push(entries.get(n._id));
   return { view, participants: nodes.map((n) => ({ id: n._id, display_name: n.author?.shortName ?? n.anonymousAuthor?.shortName ?? 'Someone' })) };
+}
+
+// A discussion's replies as HTML to follow its text (api: the course's or
+// group's API path). Canvas answers 404 to /view for an anonymous
+// discussion: its GraphQL API has the replies.
+export async function repliesHtml(get, canvas, api, topicId) {
+  try {
+    return threadHtml((await get(`${api}/discussion_topics/${topicId}/view?include_new_entries=1`)).data);
+  } catch (e) {
+    if (stopsTheRun(e)) throw e;
+    if (e.status !== 404) return `<p><em>Replies not available${e.status === 403 ? ': this discussion shows them only after you post' : ''}.</em></p>`;
+    return readReplies(canvas, topicId).then(threadHtml, (x) => {
+      if (stopsTheRun(x)) throw x;
+      return '<p><em>Replies not available.</em></p>';
+    });
+  }
 }
 
 // One submission's grade, rubric marks and teacher comments; '' when it has none.
@@ -112,10 +129,7 @@ const TITLE = (c) => [day(c.last_message_at ?? c.last_authored_message_at), c.su
 function conversationSection(data) {
   const { messages, html } = conversationHtml(data);
   const title = TITLE(data);
-  const files = messages.flatMap((m) => m.attachments ?? []).map((a) => {
-    const details = fileDetails(a);
-    return { kind: 'file', id: a.id, title: details.name, fileName: details.name, locked: details.locked, details };
-  });
+  const files = messages.flatMap((m) => m.attachments ?? []).map((a) => asFileItem(a));
   return { title: files.length ? title : null, items: [{ kind: 'page', title, html }, ...files] };
 }
 
@@ -123,16 +137,7 @@ function conversationSection(data) {
 // [{ context, contextName, section }]. Opening a conversation marks it read
 // unless Canvas is told not to; an export must leave the inbox as it found it.
 export async function readMessages(canvas, onProgress = () => {}) {
-  const all = async (url) => {
-    const out = [];
-    for (let next = url; next; ) {
-      const page = await canvas.get(next);
-      out.push(...page.data);
-      next = page.next;
-    }
-    return out;
-  };
-  const lists = await Promise.all(['', '&scope=archived', '&scope=sent'].map((q) => all(`/api/v1/conversations?per_page=100${q}`)));
+  const lists = await Promise.all(['', '&scope=archived', '&scope=sent'].map((q) => readAll(canvas.get, `/api/v1/conversations?per_page=100${q}`)));
   const unique = [...new Map(lists.flat().map((c) => [c.id, c])).values()];
   let done = 0;
   return Promise.all(unique.map(async (c) => {
