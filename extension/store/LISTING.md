@@ -1,12 +1,12 @@
-# Chrome Web Store submission: Canvas to AI 0.5.0
+# Chrome Web Store submission: Canvas to AI 0.6.0
 
 Everything the developer dashboard asks for, in the order it asks. Paste each block as is.
 
 ## Package
 
-- Upload `canvas-to-ai-0.5.0.zip`, built from this commit:
+- Upload `canvas-to-ai-0.6.0.zip`, built from this commit:
   ```bash
-  cd extension && npm ci && npm test && npm run build && (cd dist && zip -X -r ../canvas-to-ai-0.5.0.zip .)
+  cd extension && npm ci && npm test && npm run build && (cd dist && zip -X -r ../canvas-to-ai-0.6.0.zip .)
   ```
   The zip holds `dist/` only: `manifest.json` at its root, no source maps, tests or `node_modules`.
 
@@ -37,6 +37,7 @@ What it reads
 Also in the ⋯ menu
 • Download the files you picked, or the whole course, into Downloads › Canvas › your course, one folder per week
 • Save with pictures: the text plus the slide and page pictures it refers to, ready to drag into a chat
+• Download all of Canvas: every course you tick, current and past, one folder each, with your grades, rubric marks, teacher comments, quizzes, group files and your lecturers' notes on your submissions. You see the total size first. If it stops midway (closed panel, lost Wi-Fi, ended login) it carries on where it was. Only if you turn them on: discussion replies and your inbox messages
 
 Private by design
 Everything is read and converted on your own computer, with your own Canvas login. Nothing is sent to the developer or anyone else: no account, no server, no analytics. Nothing is read until you agree to the short terms card.
