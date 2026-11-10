@@ -1013,6 +1013,18 @@ test('saver: a file Chrome holds back as possibly harmful fails with a reason, i
   saver.close();
 });
 
+test('saver: a download Chrome is still scanning, or found safe, is waited for, not cancelled', async () => {
+  const api = fakeDownloads((n, a) => {
+    later(() => a.emit({ id: n, danger: { current: 'asyncScanning' } }));
+    setTimeout(() => a.emit({ id: n, danger: { current: 'deepScannedSafe' } }), 3);
+    setTimeout(() => a.emit({ id: n, state: { current: 'complete' } }), 6);
+  });
+  const saver = chromeSaver(api, 'R', new AbortController().signal, quick());
+  await saver.save(file('notes.pdf'));
+  assert.deepEqual(api.cancelled, []);
+  saver.close();
+});
+
 test('saver: Stop cancels what is downloading', async () => {
   const controller = new AbortController();
   const api = fakeDownloads();

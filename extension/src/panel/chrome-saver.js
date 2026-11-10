@@ -7,7 +7,10 @@
 const SAVES_AGAIN = /^(NETWORK_|FILE_TRANSIENT)/;
 const ATTEMPTS = 5; // waits of 5, 10, 15 and 20 s between them: a short drop is waited out
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const SAFE = ['safe', 'accepted'];
+// Chrome's warnings that wait for the student to click Keep (or to agree to
+// a scan). Its other danger values are a scan still running (asyncScanning)
+// or a verdict (safe, deepScannedSafe…): those are waited out like any download.
+const WAITS_FOR_A_CLICK = ['file', 'url', 'content', 'uncommon', 'host', 'unwanted', 'accountCompromise', 'promptForScanning', 'promptForLocalPasswordScanning'];
 const HELD = 'HELD_AS_HARMFUL';
 const fatal = (message) => Object.assign(new Error(message), { fatal: true });
 
@@ -23,7 +26,7 @@ export function chromeSaver(downloads, root, signal, { loggedIn = async () => tr
     else if (change.state === 'interrupted') job.fail(change.error ?? 'FAILED');
     // Chrome holds back a file type it thinks may be harmful until the student
     // clicks Keep: the run must not wait on that.
-    else if (change.danger && !SAFE.includes(change.danger)) job.fail(HELD);
+    else if (WAITS_FOR_A_CLICK.includes(change.danger)) job.fail(HELD);
   };
   const listener = (d) => settle(d.id, { state: d.state?.current, error: d.error?.current, danger: d.danger?.current });
   downloads.onChanged.addListener(listener);
