@@ -627,6 +627,14 @@ test('plan: each group goes in its course\'s folder; a group of no listed course
   assert.ok(!paths.some((p) => p.includes('Lab 2')));
 });
 
+test('plan: totals read before a later page of enrollments failed are kept', async () => {
+  const routes = base();
+  routes['/api/v1/users/self/enrollments?type[]=StudentEnrollment&state[]=active&state[]=completed&per_page=100'] = { data: [{ course_id: 7, grades: { final_score: 88 } }], next: '/enrollments-2' };
+  routes['/enrollments-2'] = () => { throw status(500); };
+  const plan = await planOf(fakeCanvas(routes), [one(7, 'Algebra')]);
+  assert.match(plan.entries.find((e) => e.path.endsWith('Grades.md')).md, /Course total: 88%/);
+});
+
 test('plan: no messages are read unless asked for', async () => {
   const canvas = fakeCanvas({ ...base(), ...inbox() });
   await planOf(canvas, [one(7, 'Algebra')]);

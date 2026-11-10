@@ -134,9 +134,21 @@ export async function planExport(canvas, files, courses, { messages = false, rep
   }
   const messageFolder = (sections) => ({ id: 'messages', kind: 'messages', title: 'Messages', sections });
 
-  // A listing the export can do without (the run goes on without it), unless
-  // the failure stops the run.
-  const listing = (url) => readAll(canvas.get, url).catch((e) => (stopsTheRun(e) ? Promise.reject(e) : []));
+  // A listing the export can do without: what was read before a failure is
+  // kept and the run goes on, unless the failure stops the run.
+  async function listing(url) {
+    const out = [];
+    try {
+      for (let next = url; next; ) {
+        const page = await canvas.get(next);
+        out.push(...page.data);
+        next = page.next;
+      }
+    } catch (e) {
+      if (stopsTheRun(e)) throw e;
+    }
+    return out;
+  }
 
   // Each course's total, from the student's enrollments: one listing for all
   // (none when every course was read before).
