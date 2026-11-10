@@ -560,6 +560,8 @@ test('canvadocs: Canvas slowing down, or the connection dropping mid-answer, sto
   await assert.rejects(canvadocs('https://school.instructure.com', { fetch: slow.fetch }).annotations('/api/v1/canvadoc_session?id=s1'), (e) => e.throttled === true);
   const cut = fakeDocs({ s1: 2 }, { answer: (url) => (url.endsWith('/annotations') ? { text: () => Promise.reject(new TypeError('network')) } : {}) });
   await assert.rejects(canvadocs('https://school.instructure.com', { fetch: cut.fetch }).annotations('/api/v1/canvadoc_session?id=s1'), (e) => e.offline === true);
+  const cut403 = fakeDocs({}, { answer: (url) => (url.endsWith('/view') ? { ok: false, status: 403, text: () => Promise.reject(new TypeError('network')) } : {}) });
+  await assert.rejects(canvadocs('https://school.instructure.com', { fetch: cut403.fetch }).annotations('/api/v1/canvadoc_session?id=s1'), (e) => e.offline === true); // a 403 whose body never arrived
 });
 
 test('canvadocs: a preview link that lands anywhere but a Canvadocs session is refused', async () => {

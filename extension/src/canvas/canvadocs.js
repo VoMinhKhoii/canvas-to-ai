@@ -26,7 +26,7 @@ export function canvadocs(site, { fetch: send = (...a) => fetch(...a), sleep = w
   };
   async function get(url, options) {
     const res = await send(url, options).catch(offline);
-    if (res.status === 429 || (res.status === 403 && /rate limit exceeded/i.test(await res.clone().text().catch(() => '')))) {
+    if (res.status === 429 || (res.status === 403 && /rate limit exceeded/i.test(await res.clone().text().catch(offline)))) {
       throw Object.assign(new Error('Canvas asked to slow down. Wait a few minutes and try again.'), { throttled: true });
     }
     return res;
@@ -51,7 +51,7 @@ export function canvadocs(site, { fetch: send = (...a) => fetch(...a), sleep = w
       if (!asked.ok) throw new Error('Canvas would not make the annotated copy');
       for (let i = 0; i < READY_TRIES; i++) {
         const ready = await get(`${base}/annotated.pdf/is_ready`);
-        if ((await ready.json().catch(() => ({}))).ready) return `${base}/annotated.pdf`;
+        if (/"ready"\s*:\s*true/.test(await ready.text().catch(offline))) return `${base}/annotated.pdf`;
         await sleep(2000);
       }
       throw new Error('Canvas took too long to make the annotated copy');
