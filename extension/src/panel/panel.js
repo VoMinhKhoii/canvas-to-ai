@@ -8,6 +8,7 @@ import { createSelection } from './selection.js';
 import { limiter } from '../limit.js';
 import { htmlToMd } from '../pack/formats/html-to-md.js';
 import { folderCards, folderCard, pickedLine, loadingCards, termsCard, esc } from './view.js';
+import { exportFlow } from './export-panel.js';
 
 const $ = (id) => document.getElementById(id);
 const COURSE_URL = /^https:\/\/[^/]+\.instructure\.com\/courses\/(\d+)/;
@@ -57,7 +58,7 @@ function message(html) {
 // Terms: shown before anything is read from Canvas, and from ⋯ › AI use and
 // terms. Agreeing is remembered in localStorage when it is available.
 const TERMS_KEY = 'canvas-to-ai:terms'; // the version of the terms the student agreed to
-const TERMS_VERSION = '1';
+const TERMS_VERSION = '2';
 let agreedNow = false;
 function agreed() {
   try {
@@ -344,7 +345,19 @@ function clearPicks({ course, sel }) {
   updateBar();
 }
 
-const ACTIONS = { picked: downloadPicked, course: downloadCourse, save: saveWithPictures, clear: clearPicks, terms: showTerms };
+const openExport = exportFlow({
+  area: $('folders'),
+  bar: $('progress'),
+  setBusy(busy) {
+    state.busy = busy;
+    updateBar();
+  },
+  close: () => (state.course ? ($('folders').innerHTML = folderCards(state.course, state.sel, state.open)) : scan()),
+});
+const downloadAll = () => (agreed() ? openExport() : showTerms());
+if (!SAVES_FILES) menu.querySelector('[data-action="all"]').remove(); // Chrome first: Safari would need its own zip handling
+
+const ACTIONS = { picked: downloadPicked, course: downloadCourse, all: downloadAll, save: saveWithPictures, clear: clearPicks, terms: showTerms };
 menu.addEventListener('click', async (e) => {
   const action = ACTIONS[e.target.closest('[data-action]')?.dataset.action];
   if (!action) return;

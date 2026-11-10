@@ -118,6 +118,15 @@ main { flex: 1; overflow-y: auto; padding: 0 var(--space-sm) var(--space-md); di
 .terms b { font-weight: var(--weight-strong); }
 .terms .primary { flex: none; }
 
+/* download all of Canvas */
+.export p { line-height: 1.5; }
+.export h3 { color: var(--muted); font-size: var(--size-sm); font-weight: var(--weight-strong); }
+.export .row { display: flex; align-items: flex-start; gap: var(--space-sm); cursor: pointer; }
+.export .row input { flex: none; accent-color: var(--pick); }
+.export .row .text { min-width: 0; display: flex; flex-direction: column; }
+.export .warn { color: var(--text); font-weight: var(--weight-strong); }
+.export .buttons { display: flex; flex-direction: column; gap: var(--space-xs); }
+
 /* the bar */
 .bar { position: relative; padding: var(--space-md); border-top: 1px solid var(--line); background: var(--ground); }
 #progress[hidden] { display: none; }

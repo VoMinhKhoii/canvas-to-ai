@@ -1,6 +1,6 @@
 # Canvas to AI: privacy policy
 
-Last updated: 9 November 2026
+Last updated: 10 November 2026
 
 Canvas to AI is a Chrome extension that reads a Canvas course you have open and turns the
 materials you pick into text you can paste into an AI chat, or files in your Downloads folder.
@@ -13,6 +13,19 @@ from the Canvas site in your open tab and with your own login:
 - the course's name, modules, pages, announcements, syllabus and file list;
 - your own latest submission for each assignment in that course;
 - the files you pick (slides, PDFs, documents, spreadsheets, code and so on), to convert them.
+
+If you use **Download all of Canvas**, it reads the same things from every course you tick, plus
+the assignments, pages, quizzes, discussions and files outside the modules, your groups' files,
+pages and discussions, and your grades (each course's total, each assignment's grade, rubric marks
+and teacher comments), quiz scores and earlier attempts at your submissions. Where a lecturer wrote
+notes on a file you submitted, it asks Canvas's document viewer (Canvadocs, on instructure.com) for
+a copy of that file with the notes on it. Only if you turn them on, it also reads:
+
+- discussion replies, including what classmates posted;
+- your inbox, archived and sent messages, including what other people wrote to you. Reading them
+  does not mark them as read.
+
+These are saved to your Downloads folder and nowhere else.
 
 Nothing is read before you agree to the terms card.
 
@@ -31,9 +44,12 @@ Nowhere except your own computer.
 
 ## What it stores
 
-Only one thing: that you agreed to the terms card (and which version of it), kept in the
-extension's local storage on your computer so the card is not shown every time. The course
-itself is held in memory while the side panel is open and is gone when you close it.
+Two things, in the extension's own storage on your computer: that you agreed to the terms card
+(and which version of it), so the card is not shown every time; and, while a Download all of Canvas
+is unfinished, what it has read so far (the text of the pages, links to the files) and the names of
+the files it has saved, so it can continue after the panel closes or the browser quits. That is
+deleted once the download finishes, or when you start over. Otherwise the course is held in memory
+while the side panel is open and is gone when you close it.
 
 ## What it does not do
 

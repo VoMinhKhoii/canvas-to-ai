@@ -109,9 +109,90 @@ export const termsCard = (button) => `<section class="card terms">
       <li>Some courses and assessments don't allow AI tools. Check each course's rules before you paste anything into an AI chat.</li>
       <li>Canvas to AI reads your course on this computer and sends nothing anywhere. What you paste into ChatGPT, Claude or Gemini goes to that company, under its terms: check whether it uses your chats for training.</li>
       <li><b>Copy text for AI</b> copies text only. Pictures need <b>⋯ › Save with pictures</b>.</li>
+      <li><b>Download all of Canvas</b> can include messages and classmates' discussion posts, if you turn those on. Other people wrote them, so keep them private.</li>
       <li>Canvas to AI isn't made or endorsed by Instructure or your school.</li>
     </ul>
     <button class="primary" id="agree">${esc(button)}</button>
   </section>`;
 
 export const loadingCards = () => Array.from({ length: 5 }, () => '<div class="card ghost"><span></span><span></span></div>').join('');
+
+// Download all of Canvas: the cards of the export, one per step.
+export function fileSize(bytes) {
+  if (bytes < 1048576) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  if (bytes < 1073741824) return `${Math.round(bytes / 1048576)} MB`;
+  return `${(bytes / 1073741824).toFixed(1)} GB`;
+}
+const plural = (n, word) => `${n.toLocaleString('en')} ${word}${n === 1 ? '' : 's'}`;
+
+const courseRow = (c) => `<label class="row"><input type="checkbox" data-course="${esc(c.id)}" checked>
+    <span class="text"><span class="name">${esc(c.name)}</span><span class="note">${esc([c.code, c.term].filter(Boolean).join(' · '))}</span></span></label>`;
+const courseGroup = (title, list) => (list.length ? `<h3>${title}</h3>${list.map(courseRow).join('')}` : '');
+
+export const exportPicker = (courses) => `<section class="card terms export">
+    <h2>Download all of Canvas</h2>
+    <p>Each course gets its own folder. Nothing is saved until you've seen the total size.</p>
+    ${courseGroup('Current courses', courses.filter((c) => !c.past))}
+    ${courseGroup('Past courses', courses.filter((c) => c.past))}
+    ${courses.length ? '' : '<p>Canvas lists no courses for you.</p>'}
+    <h3>Also include</h3>
+    <label class="row"><input type="checkbox" id="export-replies"><span class="text"><span class="name">Discussion replies</span><span class="note">Includes what classmates posted</span></span></label>
+    <label class="row"><input type="checkbox" id="export-messages"><span class="text"><span class="name">Inbox messages</span><span class="note">Includes what other people wrote to you. Unread messages stay unread</span></span></label>
+    <div class="buttons"><button class="primary" id="export-check"${courses.length ? '' : ' disabled'}>Check the size</button><button class="text-button" id="export-close">Back</button></div>
+  </section>`;
+
+export const exportRunning = (line) => `<section class="card terms export">
+    <h2>Download all of Canvas</h2>
+    <p id="export-line" role="status">${esc(line)}</p>
+    <p class="note">Keep this panel and your Canvas tab open.</p>
+    <div class="buttons"><button class="text-button" id="export-stop">Stop</button></div>
+  </section>`;
+
+export function exportSummary(totals, notSaved, { tight }) {
+  const size = totals.bytes - totals.bigBytes;
+  return `<section class="card terms export">
+    <h2>Ready to download</h2>
+    <p><b>${fileSize(size)}</b>: ${plural(totals.files - totals.bigFiles, 'file')} and ${plural(totals.pages, 'page')}.</p>
+    ${notSaved ? `<p class="note">${plural(notSaved, 'item')} can't be saved (locked or closed). The report in the folder lists them.</p>` : ''}
+    ${totals.bigFiles ? `<label class="row"><input type="checkbox" id="export-big"><span class="text"><span class="name">Include ${plural(totals.bigFiles, 'file')} over 200 MB</span><span class="note">${fileSize(totals.bigBytes)} more</span></span></label>` : ''}
+    ${tight ? '<p class="warn">This computer may not have enough free space. If the disk fills up, the download stops by itself.</p>' : ''}
+    <div class="buttons"><button class="primary" id="export-go">Download</button><button class="text-button" id="export-back">Back</button></div>
+  </section>`;
+}
+
+export function exportFinished({ stopped, fatal, failed, leftOut, saved }, where) {
+  const head = fatal ? `${esc(fatal.message)}, so the download stopped.` : stopped ? 'Stopped.' : 'Done.';
+  const next = stopped
+    ? `Everything saved so far is kept. ${/login/.test(fatal?.message) ? 'Log in to Canvas again in your Canvas tab, then press' : 'Press'} <b>Continue</b> to carry on from here, now or later.`
+    : '<b>Export report.md</b> in that folder lists anything missing.';
+  const again = stopped ? 'Continue' : failed.length ? 'Try them again' : '';
+  return `<section class="card terms export">
+    <h2>${head}</h2>
+    <p>${plural(saved, 'item')} saved in <b>${esc(where)}</b>.</p>
+    ${failed.length && !stopped ? `<p class="warn">${plural(failed.length, 'item')} could not be saved.</p>` : ''}
+    ${leftOut.length && !stopped ? `<p class="note">${plural(leftOut.length, 'file')} over 200 MB left out.</p>` : ''}
+    <p>${next}</p>
+    <div class="buttons">${again ? `<button class="primary" id="export-again">${again}</button><button class="text-button" id="export-close">Close</button>` : '<button class="primary" id="export-close">Close</button>'}</div>
+  </section>`;
+}
+
+// An export that did not finish, found when the student comes back to it.
+export function exportResume({ planned, started, saved, total, read, courses, root }) {
+  const where = !planned
+    ? `Its size check had read ${read.toLocaleString('en')} of ${plural(courses, 'course')}.`
+    : started
+      ? `${saved.toLocaleString('en')} of ${plural(total, 'item')} are saved in <b>Downloads › ${esc(root)}</b>.`
+      : 'Its size check is done; nothing is saved yet.';
+  return `<section class="card terms export">
+    <h2>Your last export didn't finish</h2>
+    <p>${where} It carries on from there${planned ? '' : ', and nothing is saved before you see the size'}.</p>
+    <div class="buttons"><button class="primary" id="export-continue">Continue</button><button class="text-button" id="export-over">Start over</button><button class="text-button" id="export-close">Back</button></div>
+  </section>`;
+}
+
+export const exportProblem = (text) => `<section class="card terms export">
+    <h2>That didn't work</h2>
+    <p>${esc(text)}</p>
+    <p class="note">Nothing read or saved so far is lost.</p>
+    <div class="buttons"><button class="primary" id="export-again">Try again</button><button class="text-button" id="export-close">Close</button></div>
+  </section>`;

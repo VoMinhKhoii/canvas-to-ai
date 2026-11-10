@@ -64,22 +64,22 @@ Canvas to AI is made by a student. It is not made or endorsed by Instructure or 
 
 **Single purpose**:
 
-> Turns the Canvas course materials a student picks into text for an AI chat, or downloads them, on the student's own computer.
+> Turns the Canvas course materials a student picks into text for an AI chat, or downloads them (with the student's own Canvas messages and discussions, if they opt in), on the student's own computer.
 
 **Permission justifications**:
 
 | Permission | Justification |
 | --- | --- |
 | `sidePanel` | The extension's whole interface is a side panel beside the Canvas course. |
-| `scripting` | Injects one small script into the student's open Canvas course tab so the panel can read the course through the Canvas API with the student's own login. It only makes GET requests to that Canvas site's /api/v1/ and answers only this extension. |
-| `downloads` | Saves the files the student picks, and the "Save with pictures" text and images, into their Downloads folder. |
+| `scripting` | Injects one small script into the student's open Canvas course tab so the panel can read the course through the Canvas API with the student's own login. It only reads: GET requests to that Canvas site's /api/v1/, plus read-only GraphQL queries (never mutations) for the replies to anonymous discussions, which /api/v1/ does not give. It answers only this extension. |
+| `downloads` | Saves the files the student picks, the "Save with pictures" text and images, and Download all of Canvas, into their Downloads folder. |
 | `clipboardWrite` | "Copy text for AI" puts the converted course text on the clipboard. |
-| Host `https://*.instructure.com/*` | Canvas sites are hosted on instructure.com: the panel finds the course tab, reads the course and downloads the picked files there. |
+| Host `https://*.instructure.com/*` | Canvas sites are hosted on instructure.com: the panel finds the course tab, reads the course and downloads the picked files there. Download all of Canvas also opens the student's own submitted files in Canvas's document viewer (Canvadocs, also on instructure.com) to save a copy with the lecturer's notes on it. |
 | Host `https://*.canvas-user-content.com/*`, `https://*.inscloudgate.net/*` | Canvas serves course files from these hosts; downloads of picked files are redirected to them. |
 
 **Remote code**: No, I am not using remote code. (All code, including pdf.js and SheetJS, is bundled in the package.)
 
-**Data usage**: tick **Website content** only ("text, images, and files on websites": the course pages and files the student picks). Leave every other category unticked. Then certify all three statements:
+**Data usage**: tick **Website content** ("text, images, and files on websites": the course pages and files the student picks) and **Personal communications** (the Canvas inbox messages a student opts in to saving). Leave every other category unticked. Then certify all three statements:
 
 - I do not sell or transfer user data to third parties, outside of the approved use cases.
 - I do not use or transfer user data for purposes that are unrelated to my item's single purpose.
