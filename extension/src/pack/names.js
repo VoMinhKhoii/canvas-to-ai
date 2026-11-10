@@ -45,5 +45,17 @@ export function pathAllocator() {
   };
 }
 
-// Safe file/folder name for downloads.
-export const safe = (s) => s.replace(/[\\/:*?"<>|~\x00-\x1f]+/g, '_').replace(/^[\s.]+|[\s.]+$/g, '').slice(0, 120) || 'untitled';
+// Safe file/folder name for downloads. Chrome refuses a download whose name
+// holds an invisible character (a zero-width space pasted from Word, the
+// joiner inside 👩‍🏫, a soft hyphen) or a control character, or is a name
+// Windows keeps for itself (CON, AUX.pdf, desktop.ini) or a shortcut (.lnk,
+// .url): on every system, so these are changed, not refused.
+export const safe = (s) =>
+  s
+    .replace(/[\p{Cf}\x7f-\x9f]+/gu, '')
+    .replace(/[\\/:*?"<>|~\x00-\x1f]+/g, '_')
+    .replace(/^[\s.]+|[\s.]+$/g, '')
+    .slice(0, 120)
+    .replace(/^(con|prn|aux|nul|com\d|lpt\d)(?=\.|$)/i, '$1_')
+    .replace(/^(desktop\.ini|thumbs\.db)$/i, '_$1')
+    .replace(/\.(lnk|local|url|scf)$/i, '.$1_') || 'untitled';

@@ -13,6 +13,7 @@ Words used in code, tests and the interface. Keep them exact.
 - **Selection**: what the student has picked. Picking a folder or a section picks every unlocked item in it; a folder is "on", "off" or "some".
 - **Pack**: what "Copy for AI" produces from a selection: one Markdown document, the pictures it refers to, and the items that could not be read (with the reason).
 - **Readable**: a file whose text the pack can extract (PDF, PowerPoint, Word, HTML, notebooks, code, plain text). Other files (zip, video) can be downloaded but are listed under "Not included" in the pack.
+- **Export**: what "Download all of Canvas" saves: the courses a student ticks, one folder each, everything in them including what sits outside the modules, quizzes, group spaces, their grades (course totals, rubric marks, teacher comments), earlier attempts and annotated copies of submitted files (the lecturer's notes, from Canvadocs), and (only if turned on) discussion replies and inbox messages. Its size is shown before anything is saved. An export is kept as it goes, so one that stopped (or whose size check stopped) continues where it was, into the same folder.
 - **Page image**: a picture a page displays (`<img>`). It belongs to its page and appears in the pack where the page shows it; it is not listed as an item.
 
 ## Seams

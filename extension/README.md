@@ -9,6 +9,12 @@ pick a week or single files, and:
 - **Download the files** into `Downloads/Canvas/<course>/<NN week>/`.
 - **Save with pictures**: the Markdown plus an `images/` folder with the pictures it
   refers to (slide images, scanned or diagram pages, page images).
+- **Download all of Canvas** (Chrome): every course you tick, one folder each, in
+  `Downloads/Canvas export <date>/`, with grades, rubric marks, teacher comments, quizzes,
+  group files, and a copy of each submitted file with the lecturer's notes on it.
+  Shows the total size first, can include discussion replies and inbox messages if you turn
+  them on, and continues where it stopped after the panel closes, the browser quits, the Wi-Fi
+  drops or the Canvas login ends.
 
 It uses the student's own Canvas login in their tab (no API token, no server); files are
 converted on their computer.
