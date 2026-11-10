@@ -9,6 +9,7 @@
 // memory: the browser writes each file to disk itself, a few at a time.
 import { scanCourse, scanGroup } from './canvas/scan.js';
 import { readMessages } from './canvas/talk.js';
+import { stopsTheRun } from './canvas/stops.js';
 import { htmlToMd } from './pack/formats/html-to-md.js';
 import { pathAllocator, safe } from './pack/names.js';
 
@@ -84,7 +85,7 @@ export async function planExport(canvas, files, courses, { messages = false, rep
     const details = (item) => {
       if (item.kind !== 'file' || item.locked) return null;
       if (item.details) return Promise.resolve(item.details);
-      const lookup = files.meta(item.id).catch((e) => (e.throttled ? Promise.reject(e) : null));
+      const lookup = files.meta(item.id).catch((e) => (stopsTheRun(e) ? Promise.reject(e) : null));
       lookup.catch(() => {}); // awaited below, unless an earlier one already ended the run
       return lookup;
     };
@@ -151,7 +152,7 @@ export async function planExport(canvas, files, courses, { messages = false, rep
         next = page.next;
       }
     } catch (e) {
-      if (e.throttled || e.offline) throw e; // otherwise the grades pages go without totals
+      if (stopsTheRun(e)) throw e; // otherwise the grades pages go without totals
     }
     return totals;
   }
@@ -168,7 +169,7 @@ export async function planExport(canvas, files, courses, { messages = false, rep
         next = page.next;
       }
     } catch (e) {
-      if (e.throttled || e.offline) throw e;
+      if (stopsTheRun(e)) throw e;
       groups = []; // otherwise the courses go without their groups
     }
     await keep('groups', groups);
@@ -193,7 +194,7 @@ export async function planExport(canvas, files, courses, { messages = false, rep
       await keep(`course:${c.id}`, part);
       add(part);
     } catch (e) {
-      if (e.throttled) throw e; // the rest would fail too: the student should know now
+      if (stopsTheRun(e)) throw e; // the rest would fail too: the student should know now
       await canvas.get('/api/v1/users/self'); // throws if the login or the tab is gone: stop, don't fail every course left
       notSaved.push({ title: c.name, reason: e.status === 403 ? 'This course is closed to you' : e.message });
     }

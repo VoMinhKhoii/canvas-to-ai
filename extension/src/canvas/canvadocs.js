@@ -16,8 +16,12 @@ const PARALLEL = 2;
 const READY_TRIES = 60; // every 2 s: two minutes for Canvadocs to build one
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-export function canvadocs(site, { fetch: get = (...a) => fetch(...a), sleep = wait } = {}) {
+export function canvadocs(site, { fetch: send = (...a) => fetch(...a), sleep = wait } = {}) {
   const limit = limiter(PARALLEL);
+  // fetch fails outright only when the connection does: that stops the run (stops.js).
+  const get = (url, options) => send(url, options).catch(() => {
+    throw Object.assign(new Error('Lost the connection to Canvas. Check your internet, then try again.'), { offline: true });
+  });
   // The session's address, e.g. https://canvadocs-syd.instructure.com/1/sessions/<id>.
   async function session(previewUrl) {
     const res = await get(new URL(previewUrl, site), { credentials: 'include' });

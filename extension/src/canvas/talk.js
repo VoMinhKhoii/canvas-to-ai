@@ -1,6 +1,7 @@
 // What people wrote, as page HTML: discussion replies, grades and teacher
 // comments, inbox messages.
 import { fileDetails } from './file.js';
+import { stopsTheRun } from './stops.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 const text = (s) => esc(s).replace(/\n/g, '<br>'); // plain text from Canvas, never markup
@@ -140,7 +141,7 @@ export async function readMessages(canvas, onProgress = () => {}) {
       const { data } = await canvas.get(`/api/v1/conversations/${c.id}?auto_mark_as_read=false`);
       return { ...at, section: conversationSection(data) };
     } catch (e) {
-      if (e.throttled) throw e;
+      if (stopsTheRun(e)) throw e;
       return { ...at, section: { title: null, items: [{ kind: 'page', title: TITLE(c), html: '', locked: 'Not available' }] } };
     } finally {
       onProgress(++done, unique.length);

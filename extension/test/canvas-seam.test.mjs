@@ -41,6 +41,18 @@ test('proxy: Canvas slowing down is told apart from a refusal', async () => {
   answer = {};
 });
 
+test('proxy: an ended login is told apart from a listing closed to the student', async () => {
+  landed = undefined;
+  answer = { ok: false, status: 401, text: async () => '{"status":"unauthenticated","errors":[{"message":"user authorization required"}]}' };
+  assert.deepEqual(await ask('/api/v1/users/self'), { status: 401, loggedOut: true });
+  answer = { ok: false, status: 401, text: async () => '{"status":"unauthorized","errors":[{"message":"user not authorised to perform that action"}]}' };
+  assert.deepEqual(await ask('/api/v1/courses/1/files'), { status: 401 });
+  answer = {};
+  landed = 'https://school.instructure.com/login/saml';
+  assert.equal((await ask('/api/v1/courses/1')).loggedOut, true); // sent to the login page
+  landed = undefined;
+});
+
 test('proxy: the remaining quota comes with an answer', async () => {
   answer = { headers: new Headers({ 'X-Rate-Limit-Remaining': '612.25' }) };
   assert.equal((await ask('/api/v1/courses/1')).remaining, 612.25);

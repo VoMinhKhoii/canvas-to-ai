@@ -14,6 +14,7 @@ import { limiter } from '../limit.js';
 import { lockedReason } from './locked.js';
 import { fileDetails } from './file.js';
 import { threadHtml, feedbackHtml, gradesHtml, quizScoreHtml, readReplies } from './talk.js';
+import { stopsTheRun } from './stops.js';
 
 const LIMIT = 6; // requests in flight, well under Canvas's rate limit
 const PAGE_TYPES = new Set(['Page', 'Assignment', 'Discussion']);
@@ -37,7 +38,7 @@ export async function scanCourse(canvas, courseId, { onProgress = () => {}, ever
     }
     return out;
   };
-  const optional = (url) => getAll(url).catch((e) => (CLOSED.includes(e.status) ? [] : Promise.reject(e)));
+  const optional = (url) => getAll(url).catch((e) => (CLOSED.includes(e.status) && !stopsTheRun(e) ? [] : Promise.reject(e)));
   const api = `/api/v1/courses/${courseId}`;
   onProgress('Reading the course…');
   const [course, modules, announcements, submissions, courseFiles] = await Promise.all([
@@ -71,7 +72,7 @@ export async function scanCourse(canvas, courseId, { onProgress = () => {}, ever
       linkedFiles.set(id, fileInfo.has(id) ? Promise.resolve(courseFileItem(id, fileInfo.get(id))) : get(`/api/v1/files/${id}`).then(
         ({ data }) => ({ kind: 'file', id, title: data.display_name, fileName: data.display_name, locked: lockedReason(data) }),
         (e) => {
-          if (e.throttled) throw e; // Canvas slowing down says nothing about this file
+          if (stopsTheRun(e)) throw e; // says nothing about this file
           return null; // not visible to this student
         },
       ));
@@ -98,7 +99,7 @@ export async function scanCourse(canvas, courseId, { onProgress = () => {}, ever
     try {
       return threadHtml((await get(`${api}/discussion_topics/${topicId}/view?include_new_entries=1`)).data);
     } catch (e) {
-      if (e.throttled) throw e;
+      if (stopsTheRun(e)) throw e;
       if (e.status === 404) return anonymousReplies(topicId);
       return `<p><em>Replies not available${e.status === 403 ? ': this discussion shows them only after you post' : ''}.</em></p>`;
     }
@@ -108,7 +109,7 @@ export async function scanCourse(canvas, courseId, { onProgress = () => {}, ever
     try {
       return threadHtml(await readReplies(canvas, topicId));
     } catch (e) {
-      if (e.throttled) throw e;
+      if (stopsTheRun(e)) throw e;
       return '<p><em>Replies not available.</em></p>';
     }
   }
@@ -118,7 +119,7 @@ export async function scanCourse(canvas, courseId, { onProgress = () => {}, ever
     try {
       return quizScoreHtml(quiz, (await get(`${api}/quizzes/${quiz.id}/submissions`)).data.quiz_submissions ?? []);
     } catch (e) {
-      if (e.throttled) throw e;
+      if (stopsTheRun(e)) throw e;
       return '';
     }
   }
@@ -144,7 +145,7 @@ export async function scanCourse(canvas, courseId, { onProgress = () => {}, ever
           const more = it.type === 'Discussion' ? await repliesTo(it.content_id) : it.type === 'Quiz' ? await quizScore(data) : '';
           return await pageWithFiles(it.title, body + more, data.attachments);
         } catch (e) {
-          if (e.throttled) throw e;
+          if (stopsTheRun(e)) throw e;
           return [{ kind: 'page', title: it.title, html: '', locked: locked || 'Not available' }];
         }
     }
@@ -187,7 +188,9 @@ export async function scanCourse(canvas, courseId, { onProgress = () => {}, ever
     try {
       if (!(await docs.annotations(a.preview_url))) return null;
       return { ...item, locked: '', details: { name, size: a.size ?? 0, url: '', locked: '', annotated: { course: Number(courseId), assignment: s.assignment_id, attachment: a.id } } };
-    } catch {
+    } catch (e) {
+      if (stopsTheRun(e)) throw e;
+      await get('/api/v1/users/self'); // a viewer that would not open may mean the login ended: then this stops the run
       return { ...item, locked: 'Canvas did not show the lecturer\'s notes on it' };
     }
   }
@@ -212,7 +215,7 @@ export async function scanCourse(canvas, courseId, { onProgress = () => {}, ever
       try {
         body = (await get(`${api}/pages/${encodeURIComponent(p.url)}`)).data.body ?? '';
       } catch (e) {
-        if (e.throttled) throw e;
+        if (stopsTheRun(e)) throw e;
         if (!lockedReason(p)) return [{ kind: 'page', title: p.title, html: '', locked: 'Not available' }];
       }
       return closed(p.title, p, body) ?? pageWithFiles(p.title, body);
@@ -283,7 +286,7 @@ export async function scanGroup(canvas, group, { replies = false } = {}) {
     }
     return out;
   };
-  const optional = (url) => getAll(url).catch((e) => (CLOSED.includes(e.status) ? [] : Promise.reject(e)));
+  const optional = (url) => getAll(url).catch((e) => (CLOSED.includes(e.status) && !stopsTheRun(e) ? [] : Promise.reject(e)));
   const api = `/api/v1/groups/${group.id}`;
   const [files, folders, pages, topics] = await Promise.all([
     optional(`${api}/files?per_page=100`),
@@ -306,7 +309,7 @@ export async function scanGroup(canvas, group, { replies = false } = {}) {
       const html = ((await get(url)).data[field] ?? '') + more;
       return html.trim() ? [{ kind: 'page', title, html }] : [];
     } catch (e) {
-      if (e.throttled) throw e;
+      if (stopsTheRun(e)) throw e;
       return [{ kind: 'page', title, html: '', locked: 'Not available' }];
     }
   };
@@ -316,10 +319,10 @@ export async function scanGroup(canvas, group, { replies = false } = {}) {
     try {
       return threadHtml((await get(`${api}/discussion_topics/${t.id}/view?include_new_entries=1`)).data);
     } catch (e) {
-      if (e.throttled) throw e;
+      if (stopsTheRun(e)) throw e;
       if (e.status !== 404) return '';
       return readReplies(canvas, t.id).then(threadHtml, (x) => {
-        if (x.throttled) throw x;
+        if (stopsTheRun(x)) throw x;
         return '';
       });
     }

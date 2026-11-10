@@ -139,6 +139,12 @@ test('adapter: the tab closed or left Canvas: another tab of the same site carri
   await assert.rejects(canvas.get('/y'), (e) => e.offline === true && /Keep Canvas open/.test(e.message)); // waited out by steady()
 });
 
+test('adapter: an ended login is an error of its own, never "closed to you"', async () => {
+  globalThis.chrome = fakeTabs({ 1: 'https://school.instructure.com/courses/1' }, () => ({ status: 401, loggedOut: true }));
+  const canvas = await tabCanvas(1);
+  await assert.rejects(canvas.get('/x'), (e) => e.loggedOut === true && /login ended/.test(e.message));
+});
+
 test('adapter: no connection is told apart from a failed request', async () => {
   globalThis.chrome = fakeTabs({ 1: 'https://school.instructure.com/courses/1' }, () => ({ error: 'No connection to Canvas', offline: true }));
   const canvas = await tabCanvas(1);
@@ -148,6 +154,7 @@ test('adapter: no connection is told apart from a failed request', async () => {
 // ── the whole-course scan ──
 const C = '/api/v1/courses/7';
 const base = () => ({
+  '/api/v1/users/self': { id: 1 },
   [`${C}?include[]=syllabus_body`]: { name: 'Algebra', course_code: 'M1' },
   [`${C}/modules?include[]=items&include[]=content_details&per_page=100`]: [{ id: 1, name: 'Week 1', items: [
     { type: 'File', title: 'Slides', content_id: 11, content_details: { display_name: 'slides.pdf', locked_for_user: false } },
@@ -287,6 +294,29 @@ test('everything: locked past its close date but its text still given: kept; loc
 test('grades: a course total with only a percentage', () => {
   assert.match(gradesHtml({ final_score: 90 }, []), /^<p>Course total: 90%<\/p>$/);
   assert.equal(gradesHtml({}, []), '');
+});
+
+// The login ending midway, at each kind of read: the scan stops (to continue
+// later) instead of keeping "Not available" where the content should be.
+const loggedOut = () => Object.assign(new Error('Your Canvas login ended'), { loggedOut: true, status: 401 });
+for (const [what, key] of [
+  ['a module page', 'https://x.test/intro'],
+  ['a listing closed to students looks like (401)', `${C}/assignments?per_page=100`],
+  ['replies', `${C}/discussion_topics/40/view?include_new_entries=1`],
+]) {
+  test(`login ended reading ${what}: the scan stops instead of keeping a gap`, async () => {
+    await assert.rejects(scanCourse(fakeCanvas({ ...base(), [key]: () => { throw loggedOut(); } }), 7, { everything: true, replies: true }), (e) => e.loggedOut);
+  });
+}
+
+test('login ended reading a message: the inbox is not kept with a gap', async () => {
+  await assert.rejects(readMessages(fakeCanvas({ ...inbox(), '/api/v1/conversations/2?auto_mark_as_read=false': () => { throw loggedOut(); } })), (e) => e.loggedOut);
+});
+
+test('annotations: a viewer that will not open is checked against the login before being reported', async () => {
+  const docs = { annotations: async () => { throw new Error('Canvas did not open its document viewer'); } };
+  const routes = { ...withSubmittedFiles(), '/api/v1/users/self': () => { throw loggedOut(); } };
+  await assert.rejects(scanCourse(fakeCanvas(routes), 7, { everything: true, docs }), (e) => e.loggedOut);
 });
 
 test('a default scan reads no quiz, rubric or grades', async () => {
@@ -846,9 +876,9 @@ test('saver: before continuing, what Chrome finished counts as saved and what it
   ];
   api.search = async (q) => rows.filter((r) => new RegExp(q.filenameRegex).test(r.filename));
   const saver = chromeSaver(api, root, new AbortController().signal, quick());
-  assert.deepEqual(await saver.tidy(), ['Algebra/01 Week 1/notes.pdf', 'Biology/a.pdf']);
+  assert.deepEqual(await saver.tidy(), ['Algebra/01 Week 1/notes.pdf', 'Biology/a.pdf']); // not quiz.pdf: a web page, saved again
   assert.deepEqual(api.cancelled, [8, 9]);
-  assert.deepEqual(api.removed, [11]);
+  assert.deepEqual(api.removed, []); // nothing deleted: saving it again replaces it
   assert.deepEqual(api.erased.sort(), [10, 11, 7, 8, 9].sort());
   saver.close();
 });

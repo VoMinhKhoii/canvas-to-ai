@@ -9,7 +9,7 @@ if (!globalThis.__canvasToAiProxy) {
     if (sender.id !== chrome.runtime.id) return false;
     const job = message?.type === 'canvas:get' ? canvasGet(message.url) : message?.type === 'canvas:graphql' ? canvasQuery(message.query, message.variables) : null;
     if (!job) return false;
-    job.then(reply, (e) => reply({ error: e.message, ...(e.offline && { offline: true }) }));
+    job.then(reply, (e) => reply({ error: e.message, ...(e.offline && { offline: true }), ...(e.loggedOut && { loggedOut: true }) }));
     return true; // the reply is sent asynchronously
   });
 }
@@ -42,14 +42,18 @@ async function answer(res, path) {
   // A redirect (an expired login, a misconfigured site) must not make another
   // page's content pass for an API answer.
   const landed = new URL(res.url);
-  if (landed.origin !== location.origin || !landed.pathname.startsWith(path)) throw new Error('Canvas sent the request elsewhere. Log in to Canvas in that tab and try again.');
+  // Canvas sends a request elsewhere when the login has ended (its login page).
+  if (landed.origin !== location.origin || !landed.pathname.startsWith(path)) throw Object.assign(new Error('Canvas sent the request elsewhere. Log in to Canvas in that tab and try again.'), { loggedOut: true });
   const remaining = Number.parseFloat(res.headers.get('X-Rate-Limit-Remaining'));
   const quota = Number.isNaN(remaining) ? {} : { remaining };
   if (!res.ok) {
     // Canvas says "slow down" with a 403 (429 on some sites), the same status
-    // as "not for you": only the body tells them apart.
-    const throttled = res.status === 429 || (res.status === 403 && /rate limit exceeded/i.test(await res.text()));
-    return { status: res.status, ...quota, ...(throttled && { throttled }) };
+    // as "not for you", and "log in first" with a 401, as it does "not for
+    // you" on some listings: only the body tells them apart.
+    const body = [401, 403].includes(res.status) ? await res.text() : '';
+    const throttled = res.status === 429 || (res.status === 403 && /rate limit exceeded/i.test(body));
+    const loggedOut = res.status === 401 && /unauthenticated|authorization required/i.test(body);
+    return { status: res.status, ...quota, ...(throttled && { throttled }), ...(loggedOut && { loggedOut }) };
   }
   // Canvas prefixes JSON for cookie sessions with "while(1);".
   const data = JSON.parse((await res.text()).replace(/^while\(1\);/, ''));

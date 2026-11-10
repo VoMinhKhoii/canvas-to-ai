@@ -75,17 +75,18 @@ export function chromeSaver(downloads, root, signal, { loggedIn = async () => tr
     },
     // Before an export continues: what Chrome was still doing in its folder
     // when the panel closed or the browser quit. Downloads that finished are
-    // counted as saved (their paths are returned); the rest are cancelled, to
-    // be saved again, so no half-written file is left behind.
+    // counted as saved (their paths are returned); unfinished ones are
+    // cancelled, to be saved again, so no half-written file is left behind.
     async tidy() {
       const escaped = root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const inFolder = new RegExp(`[\\\\/]${escaped}[\\\\/](.+)$`);
       const finished = [];
       for (const d of await downloads.search({ filenameRegex: `[\\\\/]${escaped}[\\\\/]` })) {
         const path = inFolder.exec(d.filename)?.[1]?.replaceAll('\\', '/');
+        // A web page where a file was expected is not counted: saved again, it
+        // is replaced by the file, or found to be Canvas's login page.
         if (d.state === 'complete' && d.exists !== false && path && !notThePage(d, path)) finished.push(path);
         else if (d.state !== 'complete') await downloads.cancel(d.id).catch(() => {});
-        else await downloads.removeFile(d.id).catch(() => {});
         await downloads.erase({ id: d.id }).catch(() => {});
       }
       return finished;

@@ -105,7 +105,7 @@ export function exportFlow({ area, bar, setBusy, close }) {
     const where = `Downloads › ${run.root}`;
     draw(exportRunning(`Saving to ${where}…`), { 'export-stop': stop });
     await exportStore.put('run', run);
-    const loggedIn = () => canvas.get('/api/v1/users/self').then(() => true, (e) => e.status !== 401);
+    const loggedIn = () => canvas.get('/api/v1/users/self').then(() => true, (e) => !e.loggedOut);
     const saver = chromeSaver(chrome.downloads, run.root, signal, { loggedIn });
     const done = new Set((await exportStore.get('saved')) ?? []);
     for (const path of await saver.tidy()) done.add(path);
