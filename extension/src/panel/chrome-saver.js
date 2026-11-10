@@ -7,6 +7,8 @@
 const SAVES_AGAIN = /^(NETWORK_|FILE_TRANSIENT)/;
 const ATTEMPTS = 5; // waits of 5, 10, 15 and 20 s between them: a short drop is waited out
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const SAFE = ['safe', 'accepted'];
+const HELD = 'HELD_AS_HARMFUL';
 const fatal = (message) => Object.assign(new Error(message), { fatal: true });
 
 // loggedIn(): whether the Canvas login still holds. A file link opened
@@ -19,8 +21,11 @@ export function chromeSaver(downloads, root, signal, { loggedIn = async () => tr
     if (!job) return;
     if (change.state === 'complete') job.finish();
     else if (change.state === 'interrupted') job.fail(change.error ?? 'FAILED');
+    // Chrome holds back a file type it thinks may be harmful until the student
+    // clicks Keep: the run must not wait on that.
+    else if (change.danger && !SAFE.includes(change.danger)) job.fail(HELD);
   };
-  const listener = (d) => settle(d.id, { state: d.state?.current, error: d.error?.current });
+  const listener = (d) => settle(d.id, { state: d.state?.current, error: d.error?.current, danger: d.danger?.current });
   downloads.onChanged.addListener(listener);
   const cancelAll = () => [...waiting.keys()].forEach((id) => downloads.cancel(id).catch(() => {}));
   signal.addEventListener('abort', cancelAll);
@@ -33,8 +38,11 @@ export function chromeSaver(downloads, root, signal, { loggedIn = async () => tr
         waiting.set(id, { finish, fail });
         if (signal.aborted) downloads.cancel(id).catch(() => {});
         // It may have finished before the listener knew its id.
-        downloads.search({ id }).then(([d]) => d && settle(id, { state: d.state, error: d.error }));
+        downloads.search({ id }).then(([d]) => d && settle(id, { state: d.state, error: d.error, danger: d.danger }));
       });
+    } catch (code) {
+      if (code === HELD) await downloads.cancel(id).catch(() => {}); // not left waiting in Chrome's downloads
+      throw code;
     } finally {
       waiting.delete(id);
     }
@@ -58,6 +66,7 @@ export function chromeSaver(downloads, root, signal, { loggedIn = async () => tr
             return;
           } catch (code) {
             if (typeof code !== 'string') throw code; // ours, or chrome.downloads refused it outright (an invalid name)
+            if (code === HELD) throw new Error('Chrome held it back as possibly harmful: download it from Canvas yourself');
             if (code === 'FILE_NO_SPACE') throw fatal('Your disk is full');
             if (signal.aborted) throw new Error(code);
             if (SAVES_AGAIN.test(code) && attempt < ATTEMPTS) {

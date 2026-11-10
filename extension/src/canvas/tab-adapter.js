@@ -4,19 +4,25 @@ import { fileDetails } from './file.js';
 // tab-proxy.js inside the student's Canvas tab, so it carries their session.
 //
 // A long run outlives the page in that tab: the student moves around Canvas
-// (the proxy goes with the old page) or closes the tab. The proxy is then put
-// back, in that tab or another of the same Canvas site (findTab). Until it
-// is, a request fails as `offline`, which steady() waits out.
-export async function tabCanvas(tabId, { findTab = async () => null } = {}) {
+// (the proxy goes with the old page), closes the tab, or leaves it in the
+// background long enough for Chrome's Memory Saver to unload it (the proxy
+// is injected without error then, but nothing answers). The proxy is then put
+// back, in that tab (reloaded if unloaded) or another of the same Canvas site
+// (findTab). Until it is, a request fails as `offline`, which steady() waits out.
+export async function tabCanvas(tabId, { findTab = async () => null, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
   const site = new URL((await chrome.tabs.get(tabId)).url).origin;
-  const onSite = async (id) => (await chrome.tabs.get(id).catch(() => null))?.url?.startsWith(`${site}/`);
   const inject = async (id) => {
+    const tab = await chrome.tabs.get(id);
+    if (tab.discarded || tab.status === 'unloaded') { // unloaded: also a tab the browser restored but never opened
+      await chrome.tabs.reload(id);
+      for (let i = 0; i < 40 && (await chrome.tabs.get(id)).status !== 'complete'; i++) await sleep(500);
+    }
     await chrome.scripting.executeScript({ target: { tabId: id }, files: ['tab-proxy.js'] });
     tabId = id;
   };
   await inject(tabId);
   async function reconnect() {
-    if (await onSite(tabId)) return inject(tabId);
+    if ((await chrome.tabs.get(tabId).catch(() => null))?.url?.startsWith(`${site}/`)) return inject(tabId);
     const other = await findTab(site);
     if (other) await inject(other.id);
   }

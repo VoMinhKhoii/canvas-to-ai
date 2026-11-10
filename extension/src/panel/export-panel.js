@@ -30,8 +30,7 @@ async function findCanvasTab() {
 const findSiteTab = async (site) => latest(await chrome.tabs.query({ url: `${site}/*` }));
 
 export function exportFlow({ area, bar, setBusy, close }) {
-  let canvas;
-  let files;
+  let tab; // the Canvas tab's requests, unpaced: each run paces its own, tied to its Stop
   let courses;
   let site;
   let docs;
@@ -51,9 +50,17 @@ export function exportFlow({ area, bar, setBusy, close }) {
       setBusy(false);
     }
   }
+  // A run's Stop, and its requests to Canvas: paced, and none waiting once
+  // Stop is pressed (stops.js `stopped`).
   const stopper = () => {
     const controller = new AbortController();
-    return { signal: controller.signal, stop: () => controller.abort() };
+    const stop = () => {
+      controller.abort();
+      const button = $('export-stop');
+      if (button) Object.assign(button, { disabled: true, textContent: 'Stopping…' });
+    };
+    const paced = steady(tab, { signal: controller.signal });
+    return { signal: controller.signal, stop, paced };
   };
 
   const showPicker = () => draw(exportPicker(courses), { 'export-check': check, 'export-close': close });
@@ -62,6 +69,7 @@ export function exportFlow({ area, bar, setBusy, close }) {
     const picked = courses.filter((c) => area.querySelector(`[data-course="${c.id}"]`).checked);
     if (!picked.length) return;
     const run = { site, root: newRoot(), picked, options: { replies: $('export-replies').checked, messages: $('export-messages').checked }, planned: false, started: false, big: false };
+    draw(exportRunning('Looking through your courses…')); // the picker gone at once: a second click starts nothing
     busy(async () => {
       await exportStore.clear();
       await exportStore.put('run', run);
@@ -71,19 +79,24 @@ export function exportFlow({ area, bar, setBusy, close }) {
 
   // The size check, carrying on from what an earlier one read.
   async function plan(run) {
-    const { signal, stop } = stopper();
+    const { signal, stop, paced } = stopper();
     draw(exportRunning('Looking through your courses…'), { 'export-stop': stop });
     const known = { inbox: await exportStore.get('inbox'), groups: await exportStore.get('groups'), courses: await exportStore.courses() };
     const picked = new Set(run.picked.map((c) => c.id));
-    const result = await planExport(canvas, files, run.picked, {
-      ...run.options,
-      otherCourses: courses.filter((c) => !picked.has(c.id)),
-      docs,
-      known,
-      keep: exportStore.put,
-      signal,
-      onProgress: (text) => ($('export-line').textContent = text),
-    });
+    let result;
+    try {
+      result = await planExport(paced, canvasFiles(paced), run.picked, {
+        ...run.options,
+        otherCourses: courses.filter((c) => !picked.has(c.id)),
+        docs,
+        known,
+        keep: exportStore.put,
+        signal,
+        onProgress: (text) => ($('export-line').textContent = text),
+      });
+    } catch (e) {
+      if (!signal.aborted) throw e;
+    }
     if (signal.aborted) return resume(run);
     await exportStore.put('plan', result);
     await exportStore.put('run', { ...run, planned: true });
@@ -101,13 +114,13 @@ export function exportFlow({ area, bar, setBusy, close }) {
   }
 
   async function save(result, run) {
-    const { signal, stop } = stopper();
+    const { signal, stop, paced } = stopper();
     const where = `Downloads › ${run.root}`;
     draw(exportRunning(`Saving to ${where}…`), { 'export-stop': stop });
     await exportStore.put('run', run);
     // Only Canvas answering proves the login holds; a check that could not be
     // made (no connection, no tab) fails that save, so the file is saved again.
-    const loggedIn = () => canvas.get('/api/v1/users/self').then(() => true, (e) => {
+    const loggedIn = () => paced.get('/api/v1/users/self').then(() => true, (e) => {
       if (e.loggedOut) return false;
       throw e;
     });
@@ -120,10 +133,10 @@ export function exportFlow({ area, bar, setBusy, close }) {
     const ready = async (entry) => {
       if (!entry.annotated) return entry;
       const { course, assignment, attachment } = entry.annotated;
-      const { data } = await canvas.get(`/api/v1/courses/${course}/assignments/${assignment}/submissions/self`);
+      const { data } = await paced.get(`/api/v1/courses/${course}/assignments/${assignment}/submissions/self`);
       const file = (data.attachments ?? []).find((a) => a.id === attachment);
       if (!file?.preview_url) throw new Error('Canvas no longer shows this file');
-      return { ...entry, url: await docs.annotatedPdf(file.preview_url) };
+      return { ...entry, url: await docs.annotatedPdf(file.preview_url, signal) };
     };
     bar.hidden = false;
     try {
@@ -167,13 +180,12 @@ export function exportFlow({ area, bar, setBusy, close }) {
   }
 
   const open = () => busy(async () => {
-    const tab = await findCanvasTab();
-    if (!tab) throw new Error('Open Canvas in a tab first, then try again.');
-    site = new URL(tab.url).origin;
+    const found = await findCanvasTab();
+    if (!found) throw new Error('Open Canvas in a tab first, then try again.');
+    site = new URL(found.url).origin;
     docs = canvadocs(site);
-    canvas = steady(await tabCanvas(tab.id, { findTab: findSiteTab }));
-    files = canvasFiles(canvas);
-    courses = await listCourses(canvas);
+    tab = await tabCanvas(found.id, { findTab: findSiteTab });
+    courses = await listCourses(steady(tab));
     const run = await exportStore.get('run');
     if (run?.site === site) return resume(run);
     showPicker();

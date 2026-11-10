@@ -31,8 +31,8 @@ const part = (s, max) => safe(cut(s.replace(/\s*\/\s*/g, ' - '), max));
 function fileName(name) {
   const dot = name.lastIndexOf('.');
   const hasExt = dot > 0 && name.length - dot <= 10;
-  const ext = hasExt ? `.${safe(name.slice(dot + 1))}` : ''; // kept whole: safe() alone would cut it off a long name
-  return safe(cut(hasExt ? name.slice(0, dot) : name, MAX_FILE_NAME - ext.length)) + ext;
+  const ext = hasExt ? name.slice(dot) : ''; // kept whole: cutting the name to length would cut it off
+  return safe(cut(hasExt ? name.slice(0, dot) : name, MAX_FILE_NAME - ext.length) + ext); // the whole name: "desktop.ini" is refused, "desktop" is not
 }
 
 // The courses the student is or was enrolled in, current ones first. Canvas
@@ -152,6 +152,7 @@ export async function planExport(canvas, files, courses, { messages = false, rep
 
   // Each course's total, from the student's enrollments: one listing for all
   // (none when every course was read before).
+  onProgress('Reading your grades and groups…');
   const enrollments = courses.some((c) => !known.courses?.[c.id]) ? await listing('/api/v1/users/self/enrollments?type[]=StudentEnrollment&state[]=active&state[]=completed&per_page=100') : [];
   const totals = new Map(enrollments.filter((e) => e.grades).map((e) => [e.course_id, e.grades]));
 
@@ -163,11 +164,12 @@ export async function planExport(canvas, files, courses, { messages = false, rep
   }
   const groupFolders = async (list) => (await Promise.all(list.map((g) => scanGroup(canvas, g, { replies })))).filter((f) => f.sections.length);
 
+  const failed = new Set(); // courses Canvas would not give: their messages and groups go in Other messages / Other groups
   for (const [n, c] of courses.entries()) {
     if (signal?.aborted) break;
     const sections = inbox.get(`course_${c.id}`);
-    inbox.delete(`course_${c.id}`);
     if (known.courses?.[c.id]) {
+      inbox.delete(`course_${c.id}`);
       add(known.courses[c.id]);
       continue;
     }
@@ -180,20 +182,30 @@ export async function planExport(canvas, files, courses, { messages = false, rep
       if (signal?.aborted) break; // a course read halfway is not kept
       await keep(`course:${c.id}`, part);
       add(part);
+      inbox.delete(`course_${c.id}`);
     } catch (e) {
       if (stopsTheRun(e)) throw e; // the rest would fail too: the student should know now
       await canvas.get('/api/v1/users/self'); // throws if the login or the tab is gone: stop, don't fail every course left
       notSaved.push({ title: c.name, reason: e.status === 403 ? 'This course is closed to you' : e.message });
+      failed.add(c.id);
     }
   }
-  for (const c of otherCourses) inbox.delete(`course_${c.id}`);
+  // What belongs to a course not picked waits for that course; the report says so.
+  const waiting = [];
+  for (const c of otherCourses) {
+    const talks = inbox.get(`course_${c.id}`)?.length ?? 0;
+    const spaces = groups.filter((g) => g.course_id === c.id).length;
+    inbox.delete(`course_${c.id}`);
+    const what = [talks && `${talks} inbox conversation${talks === 1 ? '' : 's'}`, spaces && `${spaces} group space${spaces === 1 ? '' : 's'}`].filter(Boolean);
+    if (what.length) waiting.push({ title: c.name, reason: `${what.join(' and ')}, saved when you download that course` });
+  }
   const others = [...inbox.values()].flat();
   if (others.length && !signal?.aborted) add(await folderParts('Other messages', 'Other messages', [messageFolder(others)]));
-  // Groups of no listed course (a student club, a course Canvas no longer names).
+  // Groups of no listed course (a student club, a course Canvas no longer names) or of a course Canvas would not give.
   const listed = new Set([...courses, ...otherCourses].map((c) => c.id));
-  const loose = signal?.aborted ? [] : await groupFolders(groups.filter((g) => !listed.has(g.course_id)));
+  const loose = signal?.aborted ? [] : await groupFolders(groups.filter((g) => !listed.has(g.course_id) || failed.has(g.course_id)));
   if (loose.length) add(await folderParts('Other groups', 'Other groups', loose));
-  return { entries, notSaved };
+  return { entries, notSaved, waiting };
 }
 
 export const planTotals = ({ entries }) => {
@@ -207,9 +219,14 @@ export const planTotals = ({ entries }) => {
   };
 };
 
-function report({ notSaved }, leftOut, failed) {
+function report({ notSaved, waiting = [] }, leftOut, failed) {
   const list = (title, rows) => (rows.length ? [`## ${title}`, '', ...rows.map((r) => `- ${r.title}: ${r.reason}`), ''] : []);
-  const rows = [...list('Could not be saved', failed), ...list('Left out: over 200 MB', leftOut.map((e) => ({ title: e.title, reason: `${Math.round(e.size / 1048576)} MB` }))), ...list('Canvas would not give these', notSaved)];
+  const rows = [
+    ...list('Could not be saved', failed),
+    ...list('Left out: over 200 MB', leftOut.map((e) => ({ title: e.title, reason: `${Math.round(e.size / 1048576)} MB` }))),
+    ...list('Canvas would not give these', notSaved),
+    ...list('Kept for courses you did not pick', waiting),
+  ];
   return ['# Canvas export', '', ...(rows.length ? rows : ['Everything was saved.', ''])].join('\n');
 }
 
@@ -232,10 +249,11 @@ export async function runExport(plan, { save, done, signal, big = false, onProgr
           await save(entry);
           done.add(entry.path);
         } catch (e) {
+          if (signal?.aborted) break; // Stop: nothing failed
           // The disk full, or Canvas gone for every entry left (the login
           // ended, no connection): stop, to continue later.
           if (e.fatal || stopsTheRun(e)) fatal ??= e.fatal ? e : Object.assign(new Error(stopReason(e)), { fatal: true });
-          else if (!signal?.aborted) missed.push({ entry, reason: e.message });
+          else missed.push({ entry, reason: e.message });
         }
         onProgress(++finished, todo.length);
       }

@@ -56,6 +56,10 @@ while the side panel is open and is gone when you close it.
 - It does not collect, sell or share personal information.
 - It does not use your data for advertising, credit or any purpose other than the one above.
 - It does not read anything from websites other than Canvas.
+- It does not change anything in Canvas. One thing to know: Canvas counts a page, assignment or
+  discussion the extension reads as one you viewed, as if you had opened it. A module step that
+  only asks you to view an item can then show as done, and your lecturer may see it as viewed.
+  Unread inbox messages stay unread.
 
 ## Not affiliated
 

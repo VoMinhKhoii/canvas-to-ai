@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { imageName, pathAllocator } from '../src/pack/names.js';
+import { imageName, pathAllocator, safe } from '../src/pack/names.js';
 
 test('safe names are unchanged', () => {
   assert.equal(imageName('56375725-image19.png'), '56375725-image19.png');
@@ -45,4 +45,22 @@ test('names that differ only in case are one file on Windows and macOS: both sur
   const [a, b] = [imageName('7-Fig.png'), imageName('7-fig.png')];
   assert.notEqual(a.toLowerCase(), b.toLowerCase());
   assert.equal(a, a.toLowerCase());
+});
+
+// Each of these is refused by chrome.downloads ("Invalid filename") on every
+// system, checked in Chrome: every file under such a name would fail.
+test('download names lose invisible characters and step around names Windows keeps', () => {
+  assert.equal(safe('Week 1\u200b'), 'Week 1'); // zero-width space pasted from Word
+  assert.equal(safe('Lab\u00adReport.pdf'), 'LabReport.pdf'); // soft hyphen
+  assert.equal(safe('Teacher \u{1F469}\u200d\u{1F3EB}'), 'Teacher \u{1F469}\u{1F3EB}'); // emoji joiner
+  assert.equal(safe('a\u0085b'), 'ab'); // C1 control
+  assert.equal(safe('CON.pdf'), 'CON_.pdf');
+  assert.equal(safe('aux'), 'aux_');
+  assert.equal(safe('lpt9.txt'), 'lpt9_.txt');
+  assert.equal(safe('Console.pdf'), 'Console.pdf'); // only the name itself is kept
+  assert.equal(safe('desktop.ini'), '_desktop.ini');
+  assert.equal(safe('Thumbs.db'), '_Thumbs.db');
+  assert.equal(safe('Course site.url'), 'Course site.url_');
+  assert.equal(safe('shortcut.LNK'), 'shortcut.LNK_');
+  assert.equal(safe('\u200b'), 'untitled');
 });

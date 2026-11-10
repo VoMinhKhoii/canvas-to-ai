@@ -7,6 +7,7 @@
 // So is one lost to the connection (Wi-Fi dropping, a laptop waking up) or
 // to the Canvas tab moving on: a few minutes of that is waited out.
 import { limiter } from '../limit.js';
+import { stopped } from './stops.js';
 
 const PARALLEL = 6; // on RMIT's Canvas, 3 at once left the quota all but full
 const LOW_QUOTA = 250; // of about 700
@@ -15,19 +16,32 @@ const RETRIES = 12; // 2 s, 4 s, … then every 30 s: about 5 minutes in all
 const LONGEST_WAIT = 30_000;
 const again = (e) => e.throttled || e.offline || e.status >= 500;
 
-const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+// A wait that ends at once when `signal` aborts (the student pressed Stop).
+const wait = (ms, signal) => new Promise((resolve, reject) => {
+  const done = () => {
+    clearTimeout(timer);
+    reject(stopped());
+  };
+  const timer = setTimeout(() => {
+    signal?.removeEventListener('abort', done);
+    resolve();
+  }, ms);
+  signal?.addEventListener('abort', done, { once: true });
+});
 
-export function steady(canvas, { sleep = wait, now = Date.now } = {}) {
+// signal: Stop. Nothing waits past it: a request not yet sent fails as `stopped`.
+export function steady(canvas, { sleep = wait, now = Date.now, signal } = {}) {
   const limit = limiter(PARALLEL);
   let holdUntil = 0; // one hold for every request: the quota is shared
   const hold = (ms) => {
     holdUntil = Math.max(holdUntil, now() + ms);
   };
   const clear = async () => {
-    for (let left = holdUntil - now(); left > 0; left = holdUntil - now()) await sleep(left);
+    for (let left = holdUntil - now(); left > 0; left = holdUntil - now()) await sleep(left, signal);
   };
   const paced = (request) => limit(async () => {
     for (let attempt = 0; ; attempt++) {
+      if (signal?.aborted) throw stopped();
       await clear();
       try {
         const res = await request();

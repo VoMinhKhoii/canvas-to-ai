@@ -61,6 +61,20 @@ test('steady: gives up after its retries, still saying why', async () => {
   assert.ok(c.slept.reduce((a, b) => a + b) > 4 * 60_000); // a few minutes in all
 });
 
+test('steady: Stop ends a wait at once, and nothing more is sent', async () => {
+  const controller = new AbortController();
+  let calls = 0;
+  const canvas = steady({ get: async () => { calls++; throw Object.assign(new Error('gone'), { offline: true }); } }, { signal: controller.signal });
+  const asked = canvas.get('/x');
+  await new Promise((r) => setTimeout(r, 20)); // now in its 2 s wait
+  const t0 = Date.now();
+  controller.abort();
+  await assert.rejects(asked, (e) => e.stopped === true);
+  assert.ok(Date.now() - t0 < 500);
+  await assert.rejects(canvas.get('/y'), (e) => e.stopped === true);
+  assert.equal(calls, 1);
+});
+
 test('steady: a lost connection is waited out like Canvas slowing down', async () => {
   let calls = 0;
   const c = clock();
@@ -143,6 +157,22 @@ test('adapter: an ended login is an error of its own, never "closed to you"', as
   globalThis.chrome = fakeTabs({ 1: 'https://school.instructure.com/courses/1' }, () => ({ status: 401, loggedOut: true }));
   const canvas = await tabCanvas(1);
   await assert.rejects(canvas.get('/x'), (e) => e.loggedOut === true && /login ended/.test(e.message));
+});
+
+test('adapter: a Canvas tab Chrome unloaded to save memory is reloaded, then answers', async () => {
+  const tabs = { 1: 'https://school.instructure.com/courses/1' };
+  const browser = (globalThis.chrome = fakeTabs(tabs));
+  const canvas = await tabCanvas(1, { sleep: async () => {} });
+  const reloaded = [];
+  let discarded = true; // Memory Saver: the page and the proxy in it are gone; injecting "works" but nothing answers
+  const get = browser.tabs.get;
+  browser.tabs.get = async (id) => ({ ...(await get(id)), discarded, status: discarded ? 'unloaded' : 'complete' });
+  browser.tabs.reload = async (id) => { reloaded.push(id); discarded = false; };
+  browser.navigate(1, tabs[1]); // the proxy is gone with the page
+  const inject = browser.scripting.executeScript;
+  browser.scripting.executeScript = async (o) => (discarded ? undefined : inject(o));
+  assert.equal((await canvas.get('/x')).data, 'ok');
+  assert.deepEqual(reloaded, [1]);
 });
 
 test('adapter: no connection is told apart from a failed request', async () => {
@@ -480,6 +510,26 @@ test('plan: messages of a course not picked wait for that course, not Other mess
   assert.ok(!paths.some((p) => p.includes('Other course')));
   assert.ok(paths.some((p) => /^Other messages\/01 Messages\/Unlisted course\.md$/.test(p))); // a course not in the list has no folder to wait for
   assert.ok(paths.some((p) => /^Other messages\/01 Messages\/Group\.md$/.test(p)));
+  assert.deepEqual(plan.waiting, [{ title: 'Biology', reason: '1 inbox conversation, saved when you download that course' }]); // and the report says so
+});
+
+test('plan: a course Canvas will not give still has its messages and group space saved, in Other messages and Other groups', async () => {
+  const routes = { ...base(), ...inbox(), ...groupRoutes(3) };
+  routes[`/api/v1/courses/6?include[]=syllabus_body`] = () => { throw status(403); };
+  routes['/api/v1/conversations?per_page=100'] = [...routes['/api/v1/conversations?per_page=100'], { id: 6, context_code: 'course_6', subject: 'From closed' }];
+  routes['/api/v1/conversations/6?auto_mark_as_read=false'] = { subject: 'From closed', messages: [] };
+  routes['/api/v1/users/self/groups?per_page=100'] = [{ id: 3, name: 'Team 6', course_id: 6 }];
+  const plan = await planOf(fakeCanvas(routes), [one(7, 'Algebra'), one(6, 'Closed')], { messages: true });
+  const paths = plan.entries.map((e) => e.path);
+  assert.deepEqual(plan.notSaved.find((n) => n.title === 'Closed'), { title: 'Closed', reason: 'This course is closed to you' });
+  assert.ok(paths.some((p) => /^Other messages\/01 Messages\/From closed\.md$/.test(p)));
+  assert.ok(paths.some((p) => /^Other groups\/01 Group - Team 6\/plan\.pdf$/.test(p)));
+});
+
+test('run: the report lists what was kept for courses not picked', async () => {
+  const report = [];
+  await runExport({ entries: [file('a')], notSaved: [], waiting: [{ title: 'Biology', reason: '2 inbox conversations, saved when you download that course' }] }, { save: async (e) => e.md && report.push(e.md), done: new Set() });
+  assert.match(report[0], /## Kept for courses you did not pick\n\n- Biology: 2 inbox conversations/);
 });
 
 test('plan: a size check that stopped carries on, reading nothing twice, ending with the same plan', async () => {
@@ -793,6 +843,20 @@ test('saver: a login check that could not be made fails that save: the page is n
   saver.close();
 });
 
+test('run: Stop is not a failure: nothing reported, no report written', async () => {
+  const controller = new AbortController();
+  const save = async (e) => {
+    if (e.path === 'f2') {
+      controller.abort();
+      throw Object.assign(new Error('Stopped'), { stopped: true });
+    }
+  };
+  const result = await runExport({ entries: Array.from({ length: 6 }, (_, i) => file(`f${i}`)), notSaved: [] }, { save, done: new Set(), signal: controller.signal });
+  assert.equal(result.stopped, true);
+  assert.equal(result.fatal, null);
+  assert.deepEqual(result.failed, []);
+});
+
 test('run: files over the limit wait for a yes, and are listed in the report', async () => {
   const entries = [file('huge.mp4', BIG_FILE + 1), file('a'), md('p.md')];
   assert.deepEqual(planTotals({ entries }), { files: 2, pages: 1, bytes: BIG_FILE + 3, bigFiles: 1, bigBytes: BIG_FILE + 1 });
@@ -938,6 +1002,14 @@ test('saver: a forbidden file fails without retry or ending the run', async () =
   const saver = chromeSaver(api, 'R', new AbortController().signal);
   await assert.rejects(saver.save(file('a')), (e) => e.message === 'SERVER_FORBIDDEN' && !e.fatal);
   assert.equal(api.started.length, 1);
+  saver.close();
+});
+
+test('saver: a file Chrome holds back as possibly harmful fails with a reason, instead of waiting for a click forever', async () => {
+  const api = fakeDownloads((n, a) => later(() => a.emit({ id: n, danger: { current: 'file' } })));
+  const saver = chromeSaver(api, 'R', new AbortController().signal, quick());
+  await assert.rejects(saver.save(file('installer.msi')), (e) => /held it back as possibly harmful/.test(e.message) && !e.fatal);
+  assert.deepEqual(api.cancelled, [1]); // not left waiting in Chrome's downloads
   saver.close();
 });
 

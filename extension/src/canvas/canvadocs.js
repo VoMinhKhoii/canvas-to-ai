@@ -6,11 +6,12 @@
 //
 //   const docs = canvadocs('https://school.instructure.com');
 //   await docs.annotations(previewUrl); // → how many notes
-//   await docs.annotatedPdf(previewUrl); // → a link to that PDF, for the browser to download
+//   await docs.annotatedPdf(previewUrl, signal); // → a link to that PDF, for the browser to download
 //
 // Run from the panel: the session lives on a Canvadocs host, not the Canvas
 // site, and is opened with the student's Canvas login (cookies).
 import { limiter } from '../limit.js';
+import { stopped } from './stops.js';
 
 const PARALLEL = 2;
 const READY_TRIES = 60; // every 2 s: two minutes for Canvadocs to build one
@@ -45,11 +46,12 @@ export function canvadocs(site, { fetch: send = (...a) => fetch(...a), sleep = w
       if (!res.ok) throw new Error('Canvas did not list the notes on it');
       return JSON.parse(await res.text().catch(offline)).data?.length ?? 0;
     }),
-    annotatedPdf: (previewUrl) => limit(async () => {
+    annotatedPdf: (previewUrl, signal) => limit(async () => {
       const base = await session(previewUrl);
       const asked = await get(`${base}/annotated.pdf`, { method: 'POST' });
       if (!asked.ok) throw new Error('Canvas would not make the annotated copy');
       for (let i = 0; i < READY_TRIES; i++) {
+        if (signal?.aborted) throw stopped();
         const ready = await get(`${base}/annotated.pdf/is_ready`);
         if (/"ready"\s*:\s*true/.test(await ready.text().catch(offline))) return `${base}/annotated.pdf`;
         await sleep(2000);
