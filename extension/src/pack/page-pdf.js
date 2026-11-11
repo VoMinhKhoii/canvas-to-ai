@@ -32,7 +32,13 @@ function drawn(c) {
 }
 const letters = (text) => [...text.normalize('NFC')]; // a decomposed ắ is drawn as one letter
 export const drawable = (text) => letters(text).map((c) => (drawn(c) || /\s/.test(c) ? c : LOOK_ALIKE[c] ?? '')).join('');
-export const lacksLetters = (text) => letters(text).some((c) => /\p{L}/u.test(c) && !drawn(c));
+// What a page shows as text, entities decoded: its words, and the alt text
+// and titles that stand in for its pictures and embeds.
+export function lacksLetters(title, html = '') {
+  const body = new DOMParser().parseFromString(html, 'text/html').body;
+  const shown = [title, body.textContent, ...[...body.querySelectorAll('[alt], [title]')].map((el) => `${el.getAttribute('alt') ?? ''} ${el.getAttribute('title') ?? ''}`)].join(' ');
+  return letters(shown).some((c) => /\p{L}/u.test(c) && !drawn(c));
+}
 const GONE = 'script, style, noscript, template, link, meta, form, button, input, select, textarea, svg, math, object, embed, audio, canvas, .screenreader-only';
 
 // plain: without the page's own styles and with its tables as lines of

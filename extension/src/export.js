@@ -98,7 +98,7 @@ export async function planExport(canvas, files, courses, { messages = false, rep
         // An export is kept to be read: its pages are PDFs, made as they are
         // saved. One with letters the PDF's font lacks stays Markdown.
         const html = item.html ?? '';
-        if (lacksLetters(`${item.title} ${html}`)) {
+        if (lacksLetters(item.title, html)) {
           const path = place(at, `${fileName(item.title)}.md`, `page:${pageNo++}`);
           const md = `# ${item.title}\n\n${htmlToMd(html)}\n`;
           entries.push({ path, md, size: md.length, title });
