@@ -30,6 +30,14 @@ test('page pictures: a PNG is fetched once for two of its uses, and given with i
   assert.equal(shown.get('/courses/7/files/5/preview').width, 128);
 });
 
+test('page pictures: a /files/ picture on another site is not looked up on this one', async () => {
+  let looked = 0;
+  const pictures = pagePictures({ meta: async () => (looked++, { name: 'a.png', url: 'https://f.test/1' }), bytes: async () => new ArrayBuffer(0) }, { base: 'https://uni.instructure.com' });
+  const shown = await pictures('<img src="https://other.instructure.com/courses/1/files/5/preview"><img src="https://uni.instructure.com/courses/1/files/6/preview">');
+  assert.equal(looked, 1); // only this site's own
+  assert.equal(shown.size, 0);
+});
+
 test('page pictures: Stop while pictures download ends the page at once', async () => {
   const controller = new AbortController();
   let seen;

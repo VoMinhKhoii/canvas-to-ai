@@ -1,9 +1,10 @@
 // The pictures an Export's page shows, for its PDF (pack/page-pdf.js): each
 // is a course file, fetched from Canvas by its download link.
 //
-//   const pictures = pagePictures(files, { signal, loggedIn });
+//   const pictures = pagePictures(files, { base, signal, loggedIn });
 //   const shown = await pictures(html); // src → pictureData()
 //
+// base: the Canvas site; a picture on another site is not one of its files.
 // loggedIn(): whether the Canvas login still holds, asked when a picture
 // could not be had: a page whose pictures were lost to an ended login is not
 // saved without them.
@@ -15,13 +16,21 @@ import { limiter } from '../limit.js';
 
 const AT_ONCE = 3;
 
-export function pagePictures(files, { signal, loggedIn = async () => true } = {}) {
+export function pagePictures(files, { base, signal, loggedIn = async () => true } = {}) {
   const limit = limiter(AT_ONCE);
+  const site = base ? new URL(base).origin : 'https://canvas.invalid'; // no base: only links without a site are its own
+  const onSite = (src) => {
+    try {
+      return new URL(src, site).origin === site;
+    } catch {
+      return false;
+    }
+  };
   // Null for one a PDF goes without (from another site, locked, a GIF);
   // throws when one that should be there could not be had.
   async function picture(src) {
-    const id = /\/files\/(\d+)/.exec(src)?.[1];
-    if (!id) return null; // its alt text stays
+    const id = onSite(src) && /\/files\/(\d+)/.exec(src)?.[1];
+    if (!id) return null; // from another site, or not a file: its alt text stays
     const info = await files.meta(id);
     if (!info?.url || info.locked || !isImage(info.name)) return null;
     const found = pictureData(await files.bytes(info.url, { signal }));

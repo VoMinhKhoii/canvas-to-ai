@@ -5,7 +5,7 @@ import { createRequire } from 'node:module';
 import './helpers/dom.mjs';
 
 const { pageDoc } = await import('../src/pack/page-pdf.js');
-const { pictureData, lacksLetters } = await import('../src/pack/page-shown.js');
+const { pictureData, losesText } = await import('../src/pack/page-shown.js');
 const require = createRequire(import.meta.url);
 
 // Every piece of text in a pdfmake document, in order.
@@ -45,6 +45,10 @@ test('page pdf: a picture it has is drawn at its own size, never wider than the 
   assert.equal(b.fit[0], 595.28 - 112);
   assert.equal(images(doc.content).length, 2);
   assert.match(words(doc.content), /\[Diagram\]/);
+});
+
+test('page pdf: an equation (MathML) keeps its text', () => {
+  assert.match(words(pageDoc('M', '<p>Solve <math><mi>x</mi><mo>=</mo><mn>1</mn></math> now</p>').content), /Solve +x *= *1 +now/);
 });
 
 test('page pdf: the page\'s own fonts are not asked for', () => {
@@ -100,13 +104,14 @@ test('page pdf: the page\'s own links point at its Canvas site; emoji, which the
   assert.match(json, /"link":"https:\/\/uni\.instructure\.com\/media_objects_iframe\/m-1"/);
   assert.doesNotMatch(words(doc.content), /📌|👍|🏽/);
   assert.match(words(doc.content), /Read/);
-  assert.match(words(pageDoc('S ★', '<p>A ↔ B; © 2026; ACME™ ⚠ Done ✔️ ❤️ x ≤ π</p>').content), /^S +A <-> B; © 2026; ACME™ +Done √ +x ≤ π *$/); // what the font draws stays, arrows and ticks become look-alikes, the rest goes
+  assert.match(words(pageDoc('S ★', '<p>A ↔ B; © 2026; ACME™ ⚠ Done ✔️ ❤️ x ≤ π</p>').content), /^S \* +A <-> B; © 2026; ACME™ +Done √ +x ≤ π *$/); // what the font draws stays, arrows and ticks become look-alikes, the rest goes
 });
 
-test('page pdf: letters the font cannot draw are noticed; Vietnamese (even decomposed), Greek and Cyrillic are not', async () => {
-  for (const s of ['学生', 'こんにちは', '안녕', 'مرحبا', 'สวัสดี', '&#23398;&#29983;', '<img alt="学生">']) assert.ok(lacksLetters('T', `<p>${s}</p>`), s);
-  assert.ok(lacksLetters('学生', '<p>Hi</p>'));
-  for (const s of ['Tiếng Việt ắ ự', 'Tiếng Việt'.normalize('NFD'), 'Ωμέγα', 'Привет', '→ 📌 ⚠ © 1 + 2', '<a href="https://x.test/学">link</a>']) assert.ok(!lacksLetters('T', `<p>${s}</p>`), s);
+test('page pdf: text the font cannot draw is noticed (letters, numerals, operators); Vietnamese (even decomposed), Greek and Cyrillic are not', async () => {
+  for (const s of ['学生', 'こんにちは', '안녕', 'مرحبا', 'สวัสดี', '&#23398;&#29983;', '<img alt="学生">']) assert.ok(losesText('T', `<p>${s}</p>`), s);
+  assert.ok(losesText('学生', '<p>Hi</p>'));
+  for (const s of ['x ∈ A', 'x ∉ A', 'Answer: ١٢٣']) assert.ok(losesText('T', `<p>${s}</p>`), s);
+  for (const s of ['Tiếng Việt ắ ự', 'Tiếng Việt'.normalize('NFD'), 'Ωμέγα', 'Привет', '→ 📌 ⚠ © 1 + 2 ☐ ★ ●', '<a href="https://x.test/学">link</a>']) assert.ok(!losesText('T', `<p>${s}</p>`), s);
 });
 
 test('page pdf: the font\'s coverage table matches the font pdfmake ships (npm run fonts after an upgrade)', async () => {

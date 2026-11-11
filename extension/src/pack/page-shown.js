@@ -3,8 +3,8 @@
 // letters and symbols the font draws, and the pictures a PDF holds.
 //
 //   const { body, sizes } = pageBody(html, { pictures, base });
-//   lacksLetters(title, html)   // letters the font cannot draw: keep it Markdown
-//   drawable(text)              // the text as the font can draw it
+//   losesText(title, html)      // text the font cannot draw: keep it Markdown
+//   drawable(text)              // the text as the font draws it
 //   pictureData(bytes)          // { src: data: URL, width, height } | null
 //
 // pictures: the page's <img> src → pictureData(); a picture not in it is
@@ -12,7 +12,7 @@
 // (/courses/…) are on.
 import { COVERED } from './font-coverage.js';
 
-const GONE = 'script, style, noscript, template, link, meta, form, button, input, select, textarea, svg, math, object, embed, audio, canvas, .screenreader-only';
+const GONE = 'script, style, noscript, template, link, meta, form, button, input, select, textarea, svg, object, embed, audio, canvas, .screenreader-only';
 export const PDF_PICTURE_EXTS = new Set(['png', 'jpg', 'jpeg']); // what a PDF holds
 // A page's PDF before its text and pictures: mostly its font.
 export const pdfSize = (html) => 30 * 1024 + html.length;
@@ -73,11 +73,17 @@ export function flatten(body) {
   }
 }
 
-// What the font cannot draw would be an empty box: an arrow or a tick becomes
-// its look-alike, any other symbol or emoji is left out, and a page with
-// letters it cannot draw (Chinese, Japanese, Korean, Arabic, Thai…) is not
-// made a PDF at all (lacksLetters), or its text would be lost.
-const LOOK_ALIKE = { '→': '->', '←': '<-', '↔': '<->', '⇒': '=>', '⇐': '<=', '⇔': '<=>', '✓': '√', '✔': '√', '☑': '√' };
+// What the font cannot draw would be an empty box. A PDF may go without
+// decoration only: an arrow, tick, box or bullet becomes its look-alike, an
+// emoji or an invisible mark is left out. A page with any other character the
+// font lacks (Chinese, Arabic, ∈, ١٢٣…) is not made a PDF (losesText), or
+// its text would be lost.
+const LOOK_ALIKE = {
+  '→': '->', '←': '<-', '↔': '<->', '⇒': '=>', '⇐': '<=', '⇔': '<=>',
+  '✓': '√', '✔': '√', '☑': '[x]', '☒': '[x]', '☐': '[ ]', '□': '[ ]',
+  '●': '•', '■': '•', '◆': '•', '◦': '•', '▪': '•', '★': '*', '☆': '*',
+};
+const DECORATION = /[\p{Extended_Pictographic}\p{Cf}\p{Cc}\p{Emoji_Modifier}\uFE00-\uFE0F]/u;
 function drawn(c) {
   const cp = c.codePointAt(0);
   let lo = 0;
@@ -90,12 +96,17 @@ function drawn(c) {
   }
   return false;
 }
-const letters = (text) => [...text.normalize('NFC')]; // a decomposed ắ is drawn as one letter
-export const drawable = (text) => letters(text).map((c) => (drawn(c) || /\s/.test(c) ? c : LOOK_ALIKE[c] ?? '')).join('');
-// What a page shows as text, entities decoded, alt text and embeds' titles too.
-export function lacksLetters(title, html = '') {
-  return letters(`${title} ${pageBody(html).body.textContent}`).some((c) => /\p{L}/u.test(c) && !drawn(c));
+// What the PDF shows for a character: itself, its look-alike, nothing (for
+// decoration), or null when only the text itself would do.
+function shown(c) {
+  if (drawn(c) || /\s/.test(c)) return c;
+  if (LOOK_ALIKE[c]) return LOOK_ALIKE[c];
+  return DECORATION.test(c) ? '' : null;
 }
+const characters = (text) => [...text.normalize('NFC')]; // a decomposed ắ is drawn as one letter
+export const drawable = (text) => characters(text).map((c) => shown(c) ?? '').join('');
+// What a page shows as text: entities decoded, alt text and embeds' titles too.
+export const losesText = (title, html = '') => characters(`${title} ${pageBody(html).body.textContent}`).some((c) => shown(c) === null);
 
 // A picture's bytes as pdfmake takes them, or null for a kind a PDF cannot
 // hold (GIF, WebP, SVG…).

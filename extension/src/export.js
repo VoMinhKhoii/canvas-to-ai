@@ -12,7 +12,7 @@ import { readMessages } from './canvas/talk.js';
 import { stopsTheRun, stopReason } from './canvas/stops.js';
 import { readAll } from './canvas/read.js';
 import { htmlToMd } from './pack/formats/html-to-md.js';
-import { lacksLetters, pdfSize } from './pack/page-shown.js';
+import { losesText, pdfSize } from './pack/page-shown.js';
 import { pathAllocator, safe } from './pack/names.js';
 
 export const BIG_FILE = 200 * 1024 * 1024;
@@ -95,9 +95,9 @@ export async function planExport(canvas, files, courses, { messages = false, rep
       else if (item.locked) notSaved.push({ title, reason: item.locked });
       else if (item.kind === 'page') {
         // An export is kept to be read: its pages are PDFs, made as they are
-        // saved. One with letters the PDF's font lacks stays Markdown.
+        // saved. One with text the PDF's font cannot draw stays Markdown.
         const html = item.html ?? '';
-        const asPdf = !lacksLetters(item.title, html);
+        const asPdf = !losesText(item.title, html);
         const path = place(at, `${fileName(item.title)}.${asPdf ? 'pdf' : 'md'}`, `page:${pageNo++}`);
         const md = asPdf ? null : `# ${item.title}\n\n${htmlToMd(html)}\n`;
         entries.push(asPdf ? { path, page: { title: item.title, html }, size: pdfSize(html), title } : { path, md, size: md.length, title });
