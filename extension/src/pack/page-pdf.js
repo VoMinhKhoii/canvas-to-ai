@@ -12,7 +12,9 @@ import htmlToPdfmake from 'html-to-pdfmake';
 const WIDTH = 595.28 - 2 * 56; // A4, less the margins
 const HEIGHT = 600; // a picture leaves room for a line or two on its page
 const PX = 0.75; // points to a CSS pixel
-const EMOJI = /[\p{Extended_Pictographic}\u{1F3FB}-\u{1F3FF}\uFE0F\u200D]/gu; // the font has none: they would be empty boxes
+// Emoji the font has none of (they would be empty boxes); text symbols such
+// as © ™ ↔, which it has, stay.
+const EMOJI = /\p{Emoji_Presentation}|\p{Extended_Pictographic}\uFE0F|[\u{1F3FB}-\u{1F3FF}\uFE0F\u200D]/gu;
 // Letters of a script the font has no glyphs for (Chinese, Japanese, Korean,
 // Arabic, Thai…): a page with them stays Markdown, or its text would be lost.
 export const OTHER_SCRIPT = /(?![\p{Script=Latin}\p{Script=Greek}\p{Script=Cyrillic}])\p{L}/u;

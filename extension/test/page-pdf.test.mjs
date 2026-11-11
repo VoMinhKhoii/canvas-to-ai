@@ -99,6 +99,7 @@ test('page pdf: the page\'s own links point at its Canvas site; emoji, which the
   assert.match(json, /"link":"https:\/\/uni\.instructure\.com\/media_objects_iframe\/m-1"/);
   assert.doesNotMatch(words(doc.content), /📌|👍|🏽/);
   assert.match(words(doc.content), /Read/);
+  assert.match(words(pageDoc('S', '<p>A ↔ B; © 2026; ACME™ ✔️ ❤️</p>').content), /A ↔ B; © 2026; ACME™ +$/); // text symbols kept; emoji-style ones gone
 });
 
 test('page pdf: letters of a script the font lacks are noticed; Vietnamese, Greek and Cyrillic are not', async () => {
