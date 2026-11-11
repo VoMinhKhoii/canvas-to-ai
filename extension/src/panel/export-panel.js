@@ -10,7 +10,7 @@ import { steady } from '../canvas/steady.js';
 import { canvadocs } from '../canvas/canvadocs.js';
 import { listCourses, planExport, planTotals, runExport } from '../export.js';
 import { chromeSaver } from './chrome-saver.js';
-import { pagePdfs } from './page-pdfs.js';
+import { pagePictures } from './page-pictures.js';
 import { exportStore } from './export-store.js';
 import { exportPicker, exportRunning, exportSummary, exportFinished, exportProblem, exportResume } from './view.js';
 
@@ -129,11 +129,17 @@ export function exportFlow({ area, bar, setBusy, close }) {
     const done = new Set((await exportStore.get('saved')) ?? []);
     for (const path of await saver.tidy()) done.add(path);
     const remember = () => exportStore.put('saved', [...done]);
-    const pdf = pagePdfs(canvasFiles(paced), { base: run.site, signal, loggedIn });
-    // A page's PDF is made now, as is an annotated copy, from a fresh link:
-    // the one read during the size check may be a day old.
+    const pictures = pagePictures(canvasFiles(paced), { signal, loggedIn });
+    // What is saved is a Blob made here or a Canvas link. A page's PDF is made
+    // now, as is an annotated copy, from a fresh link: the one read during the
+    // size check may be a day old.
     const ready = async (entry) => {
-      if (entry.page) return { ...entry, blob: await pdf(entry.page) };
+      if (entry.md !== undefined) return { ...entry, blob: new Blob([entry.md], { type: 'text/markdown' }) };
+      if (entry.page) {
+        const { title, html } = entry.page;
+        const [shown, { renderPdf }] = await Promise.all([pictures(html), import('../pack/page-pdf.js')]);
+        return { ...entry, blob: await renderPdf(title, html, { pictures: shown, base: run.site }) };
+      }
       if (!entry.annotated) return entry;
       const { course, assignment, attachment } = entry.annotated;
       const { data } = await paced.get(`/api/v1/courses/${course}/assignments/${assignment}/submissions/self`);

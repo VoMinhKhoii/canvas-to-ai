@@ -4,7 +4,8 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import './helpers/dom.mjs';
 
-const { pageDoc, pictureData } = await import('../src/pack/page-pdf.js');
+const { pageDoc } = await import('../src/pack/page-pdf.js');
+const { pictureData, lacksLetters } = await import('../src/pack/page-shown.js');
 const require = createRequire(import.meta.url);
 
 // Every piece of text in a pdfmake document, in order.
@@ -103,7 +104,6 @@ test('page pdf: the page\'s own links point at its Canvas site; emoji, which the
 });
 
 test('page pdf: letters the font cannot draw are noticed; Vietnamese (even decomposed), Greek and Cyrillic are not', async () => {
-  const { lacksLetters } = await import('../src/pack/page-pdf.js');
   for (const s of ['学生', 'こんにちは', '안녕', 'مرحبا', 'สวัสดี', '&#23398;&#29983;', '<img alt="学生">']) assert.ok(lacksLetters('T', `<p>${s}</p>`), s);
   assert.ok(lacksLetters('学生', '<p>Hi</p>'));
   for (const s of ['Tiếng Việt ắ ự', 'Tiếng Việt'.normalize('NFD'), 'Ωμέγα', 'Привет', '→ 📌 ⚠ © 1 + 2', '<a href="https://x.test/学">link</a>']) assert.ok(!lacksLetters('T', `<p>${s}</p>`), s);

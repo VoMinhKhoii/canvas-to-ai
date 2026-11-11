@@ -1063,7 +1063,7 @@ test('saver: a page is written from a Blob whose address is let go', async () =>
   URL.revokeObjectURL = (u) => revoked.push(u);
   const api = fakeDownloads(finish);
   const saver = chromeSaver(api, 'R', new AbortController().signal);
-  await saver.save(md('a.md'));
+  await saver.save({ path: 'a.md', blob: new Blob(['x']), size: 1, title: 'a.md' });
   URL.revokeObjectURL = real;
   assert.match(api.started[0].url, /^blob:/);
   assert.deepEqual(revoked, [api.started[0].url]);

@@ -1,97 +1,21 @@
 // A Canvas page as a PDF, for Download all: an export is kept to be read, so
-// its pages are saved as PDFs a student can open, not as Markdown.
+// its pages are saved as PDFs a student can open, not as Markdown. Loaded
+// with pdfmake when the first page is saved (page-shown.js is what the plan
+// needs).
 //
-//   const doc = pageDoc(title, html, { pictures }); // a pdfmake document
-//   const blob = await renderPdf(doc);                     // in the panel
-//
-// pictures: the page's <img> src → { src: a data: URL (JPEG or PNG, what
-// PDFs take), width, height } in pixels. A picture not in it is left out, its
-// alt text kept.
+//   const blob = await renderPdf(title, html, { pictures, base });
+//   const doc = pageDoc(title, html, { pictures, base }); // the pdfmake document
 import htmlToPdfmake from 'html-to-pdfmake';
-import { COVERED } from './font-coverage.js';
+import { drawable, flatten, pageBody } from './page-shown.js';
 
 const WIDTH = 595.28 - 2 * 56; // A4, less the margins
 const HEIGHT = 600; // a picture leaves room for a line or two on its page
 const PX = 0.75; // points to a CSS pixel
-// What the font cannot draw would be an empty box: an arrow or a tick becomes
-// its look-alike, any other symbol or emoji is left out, and a page with
-// letters it cannot draw (Chinese, Japanese, Korean, Arabic, Thai…) is not
-// made a PDF at all (lacksLetters), or its text would be lost.
-const LOOK_ALIKE = { '→': '->', '←': '<-', '↔': '<->', '⇒': '=>', '⇐': '<=', '⇔': '<=>', '✓': '√', '✔': '√', '☑': '√' };
-function drawn(c) {
-  const cp = c.codePointAt(0);
-  let lo = 0;
-  let hi = COVERED.length - 1;
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
-    if (cp < COVERED[mid][0]) hi = mid - 1;
-    else if (cp > COVERED[mid][1]) lo = mid + 1;
-    else return true;
-  }
-  return false;
-}
-const letters = (text) => [...text.normalize('NFC')]; // a decomposed ắ is drawn as one letter
-export const drawable = (text) => letters(text).map((c) => (drawn(c) || /\s/.test(c) ? c : LOOK_ALIKE[c] ?? '')).join('');
-// What a page shows as text, entities decoded: its words, and the alt text
-// and titles that stand in for its pictures and embeds.
-export function lacksLetters(title, html = '') {
-  const body = new DOMParser().parseFromString(html, 'text/html').body;
-  const shown = [title, body.textContent, ...[...body.querySelectorAll('[alt], [title]')].map((el) => `${el.getAttribute('alt') ?? ''} ${el.getAttribute('title') ?? ''}`)].join(' ');
-  return letters(shown).some((c) => /\p{L}/u.test(c) && !drawn(c));
-}
-const GONE = 'script, style, noscript, template, link, meta, form, button, input, select, textarea, svg, math, object, embed, audio, canvas, .screenreader-only';
 
-// plain: without the page's own styles and with its tables as lines of
-// text, for a page the PDF maker cannot take as it is.
-// base: the Canvas site the page's own links (/courses/…) are on.
-export function pageDoc(title, html, { pictures = new Map(), plain = false, base } = {}) {
-  const body = new DOMParser().parseFromString(html ?? '', 'text/html').body;
-  for (const el of body.querySelectorAll(GONE)) el.remove();
-  const absolute = (url) => {
-    try {
-      return base ? new URL(url, base).href : url;
-    } catch {
-      return url;
-    }
-  };
-  for (const a of body.querySelectorAll('a[href]')) a.setAttribute('href', absolute(a.getAttribute('href')));
-  const text = (s) => body.ownerDocument.createTextNode(s);
-  // An embedded video or tool becomes its link.
-  for (const el of body.querySelectorAll('iframe, video')) {
-    const src = el.getAttribute('src') || el.querySelector('source')?.getAttribute('src');
-    if (!src) {
-      el.remove();
-      continue;
-    }
-    const p = body.ownerDocument.createElement('p');
-    const a = Object.assign(body.ownerDocument.createElement('a'), { textContent: el.getAttribute('title') || src });
-    a.setAttribute('href', absolute(src));
-    p.append(text('Embedded: '), a);
-    el.replaceWith(p);
-  }
-  const sizes = new Map(); // data: URL → its size in pixels
-  for (const img of body.querySelectorAll('img')) {
-    const picture = pictures.get(img.getAttribute('src'));
-    if (picture) {
-      img.setAttribute('src', picture.src);
-      for (const a of ['width', 'height', 'style']) img.removeAttribute(a); // sized below, to fit the page
-      sizes.set(picture.src, picture);
-    } else {
-      img.replaceWith(text(img.getAttribute('alt') ? `[${img.getAttribute('alt')}]` : ''));
-    }
-  }
-  if (plain) {
-    for (const el of body.querySelectorAll('[style], [class]')) ['style', 'class'].forEach((a) => el.removeAttribute(a));
-    for (const table of [...body.querySelectorAll('table')].reverse()) { // the innermost first
-      const lines = [...table.querySelectorAll('tr')].map((tr) => {
-        const p = body.ownerDocument.createElement('p');
-        p.textContent = [...tr.children].map((cell) => cell.textContent.trim()).filter(Boolean).join(' · ');
-        return p;
-      });
-      table.replaceWith(...lines);
-    }
-  }
-
+// plain: see flatten(); pictures are then left out.
+export function pageDoc(title, html, { pictures, base, plain = false } = {}) {
+  const { body, sizes } = pageBody(html ?? '', { pictures: plain ? undefined : pictures, base });
+  if (plain) flatten(body);
   const content = htmlToPdfmake(body.innerHTML, { window: globalThis, removeExtraBlanks: true, ignoreStyles: ['font-family'], replaceText: drawable, defaultStyles: { a: { color: '#1a5fb4', decoration: 'underline' } } });
   fit(content, sizes);
   return {
@@ -119,29 +43,20 @@ function fit(node, sizes) {
   if (node.table?.body) node.table.body.forEach((row) => fit(row, sizes));
 }
 
-// A picture's bytes as pdfmake takes them, or null for a kind a PDF cannot
-// hold (GIF, WebP, SVG…).
-export function pictureData(bytes) {
-  const b = new Uint8Array(bytes);
-  const at = (i) => (b[i] << 8) | b[i + 1];
-  let type;
-  let size;
-  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) {
-    type = 'png';
-    size = { width: at(18), height: at(22) }; // IHDR, big-endian; no picture is 65,536 pixels wide
-  } else if (b[0] === 0xff && b[1] === 0xd8) {
-    type = 'jpeg';
-    // The frame header (SOF0-15 but DHT, JPG, DAC) holds the size.
-    for (let i = 2; i + 9 < b.length && b[i] === 0xff; i += 2 + at(i + 2)) {
-      const m = b[i + 1];
-      if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) {
-        size = { height: at(i + 5), width: at(i + 7) };
-        break;
-      }
-    }
+let loaded;
+const pdfmake = () => (loaded ??= (async () => {
+  const [{ default: pdfMake }, { default: vfs }] = await Promise.all([import('pdfmake/build/pdfmake.min.js'), import('pdfmake/build/vfs_fonts.js')]);
+  pdfMake.addVirtualFileSystem(vfs);
+  pdfMake.setUrlAccessPolicy(() => false); // the pictures are in the document already: nothing is fetched
+  return pdfMake;
+})());
+
+export async function renderPdf(title, html, { pictures, base } = {}) {
+  const make = await pdfmake();
+  try {
+    return await make.createPdf(pageDoc(title, html, { pictures, base })).getBlob();
+  } catch {
+    // A style or a picture pdfmake could not take: the page's text, plainly.
+    return make.createPdf(pageDoc(title, html, { base, plain: true })).getBlob();
   }
-  if (!size?.width || !size.height) return null;
-  let binary = '';
-  for (let i = 0; i < b.length; i += 0x8000) binary += String.fromCharCode(...b.subarray(i, i + 0x8000));
-  return { src: `data:image/${type};base64,${btoa(binary)}`, ...size };
 }

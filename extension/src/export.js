@@ -12,13 +12,12 @@ import { readMessages } from './canvas/talk.js';
 import { stopsTheRun, stopReason } from './canvas/stops.js';
 import { readAll } from './canvas/read.js';
 import { htmlToMd } from './pack/formats/html-to-md.js';
-import { lacksLetters } from './pack/page-pdf.js';
+import { lacksLetters, pdfSize } from './pack/page-shown.js';
 import { pathAllocator, safe } from './pack/names.js';
 
 export const BIG_FILE = 200 * 1024 * 1024;
 const PARALLEL_SAVES = 3;
 const MAX_FILE_NAME = 80; // folders are capped too: paths have a limit on Windows
-const PDF_BYTES = 30 * 1024; // a page's PDF before its text and pictures: mostly its font
 
 // At most `max` characters, never half of one (𝐍 is two UTF-16 units: half
 // of it is not a valid name), and few enough bytes for the disk: a name of
@@ -98,14 +97,10 @@ export async function planExport(canvas, files, courses, { messages = false, rep
         // An export is kept to be read: its pages are PDFs, made as they are
         // saved. One with letters the PDF's font lacks stays Markdown.
         const html = item.html ?? '';
-        if (lacksLetters(item.title, html)) {
-          const path = place(at, `${fileName(item.title)}.md`, `page:${pageNo++}`);
-          const md = `# ${item.title}\n\n${htmlToMd(html)}\n`;
-          entries.push({ path, md, size: md.length, title });
-        } else {
-          const path = place(at, `${fileName(item.title)}.pdf`, `page:${pageNo++}`);
-          entries.push({ path, page: { title: item.title, html }, size: PDF_BYTES + html.length, title });
-        }
+        const asPdf = !lacksLetters(item.title, html);
+        const path = place(at, `${fileName(item.title)}.${asPdf ? 'pdf' : 'md'}`, `page:${pageNo++}`);
+        const md = asPdf ? null : `# ${item.title}\n\n${htmlToMd(html)}\n`;
+        entries.push(asPdf ? { path, page: { title: item.title, html }, size: pdfSize(html), title } : { path, md, size: md.length, title });
       } else {
         const meta = await info;
         if (!(meta?.url || meta?.annotated) || meta.locked) {
