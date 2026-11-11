@@ -490,6 +490,15 @@ test('plan: pages as PDFs, links gathered, locked items reported', async () => {
   assert.deepEqual(plan.notSaved.find((n) => n.title.endsWith('Closed')).reason, 'Locked until Friday');
 });
 
+test('plan: a page in a script the PDF font lacks stays Markdown', async () => {
+  const routes = base();
+  routes['https://x.test/intro'] = { body: '<p>学生 Hi</p>' };
+  const plan = await planOf(fakeCanvas(routes), [one(7, 'Algebra')]);
+  const intro = plan.entries.find((e) => e.path === 'Algebra/01 Week 1/Intro.md');
+  assert.match(intro.md, /^# Intro\n\n学生 Hi/);
+  assert.equal(intro.page, undefined);
+});
+
 test('plan: messages go with their course; the rest in Other messages; two of one name both kept', async () => {
   const routes = { ...base(), ...inbox() };
   routes['/api/v1/conversations/3?auto_mark_as_read=false'] = { subject: 'Hi', last_message_at: '2026-02-01T00:00:00Z', messages: [] };

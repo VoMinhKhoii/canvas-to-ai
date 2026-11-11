@@ -129,7 +129,7 @@ export function exportFlow({ area, bar, setBusy, close }) {
     const done = new Set((await exportStore.get('saved')) ?? []);
     for (const path of await saver.tidy()) done.add(path);
     const remember = () => exportStore.put('saved', [...done]);
-    const pdf = pagePdfs(canvasFiles(paced));
+    const pdf = pagePdfs(canvasFiles(paced), { base: run.site, signal, loggedIn });
     // A page's PDF is made now, as is an annotated copy, from a fresh link:
     // the one read during the size check may be a day old.
     const ready = async (entry) => {

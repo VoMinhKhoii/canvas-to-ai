@@ -12,13 +12,26 @@ import htmlToPdfmake from 'html-to-pdfmake';
 const WIDTH = 595.28 - 2 * 56; // A4, less the margins
 const HEIGHT = 600; // a picture leaves room for a line or two on its page
 const PX = 0.75; // points to a CSS pixel
+const EMOJI = /[\p{Extended_Pictographic}\u{1F3FB}-\u{1F3FF}\uFE0F\u200D]/gu; // the font has none: they would be empty boxes
+// Letters of a script the font has no glyphs for (Chinese, Japanese, Korean,
+// Arabic, Thai…): a page with them stays Markdown, or its text would be lost.
+export const OTHER_SCRIPT = /(?![\p{Script=Latin}\p{Script=Greek}\p{Script=Cyrillic}])\p{L}/u;
 const GONE = 'script, style, noscript, template, link, meta, form, button, input, select, textarea, svg, math, object, embed, audio, canvas, .screenreader-only';
 
 // plain: without the page's own styles and with its tables as lines of
 // text, for a page the PDF maker cannot take as it is.
-export function pageDoc(title, html, { pictures = new Map(), plain = false } = {}) {
+// base: the Canvas site the page's own links (/courses/…) are on.
+export function pageDoc(title, html, { pictures = new Map(), plain = false, base } = {}) {
   const body = new DOMParser().parseFromString(html ?? '', 'text/html').body;
   for (const el of body.querySelectorAll(GONE)) el.remove();
+  const absolute = (url) => {
+    try {
+      return base ? new URL(url, base).href : url;
+    } catch {
+      return url;
+    }
+  };
+  for (const a of body.querySelectorAll('a[href]')) a.setAttribute('href', absolute(a.getAttribute('href')));
   const text = (s) => body.ownerDocument.createTextNode(s);
   // An embedded video or tool becomes its link.
   for (const el of body.querySelectorAll('iframe, video')) {
@@ -29,7 +42,7 @@ export function pageDoc(title, html, { pictures = new Map(), plain = false } = {
     }
     const p = body.ownerDocument.createElement('p');
     const a = Object.assign(body.ownerDocument.createElement('a'), { textContent: el.getAttribute('title') || src });
-    a.setAttribute('href', src);
+    a.setAttribute('href', absolute(src));
     p.append(text('Embedded: '), a);
     el.replaceWith(p);
   }
@@ -56,7 +69,7 @@ export function pageDoc(title, html, { pictures = new Map(), plain = false } = {
     }
   }
 
-  const content = htmlToPdfmake(body.innerHTML, { window: globalThis, removeExtraBlanks: true, ignoreStyles: ['font-family'], defaultStyles: { a: { color: '#1a5fb4', decoration: 'underline' } } });
+  const content = htmlToPdfmake(body.innerHTML, { window: globalThis, removeExtraBlanks: true, ignoreStyles: ['font-family'], replaceText: (t) => t.replace(EMOJI, ''), defaultStyles: { a: { color: '#1a5fb4', decoration: 'underline' } } });
   fit(content, sizes);
   return {
     info: { title },

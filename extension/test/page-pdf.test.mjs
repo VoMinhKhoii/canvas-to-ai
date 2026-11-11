@@ -91,3 +91,18 @@ test('page pdf: plain, a table becomes its rows as lines, and renders where the 
   assert.equal(buffer.subarray(0, 5).toString(), '%PDF-');
 });
 
+
+test('page pdf: the page\'s own links point at its Canvas site; emoji, which the font lacks, are left out', () => {
+  const doc = pageDoc('L', '<p>📌 Read <a href="/courses/7/files/12/download">the worksheet</a> 👍🏽</p><iframe src="/media_objects_iframe/m-1"></iframe>', { base: 'https://uni.instructure.com' });
+  const json = JSON.stringify(doc.content);
+  assert.match(json, /"link":"https:\/\/uni\.instructure\.com\/courses\/7\/files\/12\/download"/);
+  assert.match(json, /"link":"https:\/\/uni\.instructure\.com\/media_objects_iframe\/m-1"/);
+  assert.doesNotMatch(words(doc.content), /📌|👍|🏽/);
+  assert.match(words(doc.content), /Read/);
+});
+
+test('page pdf: letters of a script the font lacks are noticed; Vietnamese, Greek and Cyrillic are not', async () => {
+  const { OTHER_SCRIPT } = await import('../src/pack/page-pdf.js');
+  for (const s of ['学生', 'こんにちは', '안녕', 'مرحبا', 'สวัสดี']) assert.ok(OTHER_SCRIPT.test(`<p>${s}</p>`), s);
+  for (const s of ['Tiếng Việt ắ ự', 'Ωμέγα', 'Привет', '→ 📌 © 1 + 2']) assert.ok(!OTHER_SCRIPT.test(`<p>${s}</p>`), s);
+});
