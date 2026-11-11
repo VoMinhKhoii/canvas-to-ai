@@ -53,7 +53,8 @@ Code map (see `../CONTEXT.md` for the words):
   runs in the Canvas tab, `tab-adapter.js` is the extension's adapter.
 - `src/pack/`: the **pack builder** (`build.js`) and one module per format in
   `formats/`, routed by `formats/index.js`. Heavy libraries load only when needed.
-  `page-pdf.js` lays out a page as a PDF for Download all (pdfmake, loaded on the first
-  page saved); `src/panel/page-pdfs.js` fetches its pictures and writes the file.
+  `page-pdf.js` lays out a page as a PDF for Download all (with pdfmake, loaded on the
+  first page saved); `page-shown.js` holds what that PDF can show (the font's coverage,
+  from `npm run fonts`); `src/panel/page-pictures.js` fetches a page's pictures.
 - `src/panel/`: the side panel: `selection.js` (what is picked), `view.js` (what is
   drawn), `panel.js` (wiring).
