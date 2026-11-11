@@ -479,12 +479,13 @@ test('plan: each course in its own folder; same names kept apart', async () => {
   assert.deepEqual([...tops].sort(), ['Algebra (7)', 'algebra (8)']);
 });
 
-test('plan: pages as Markdown, links gathered, locked items reported', async () => {
+test('plan: pages as PDFs, links gathered, locked items reported', async () => {
   const routes = base();
   routes[`${C}/modules?include[]=items&include[]=content_details&per_page=100`][0].items.push({ type: 'ExternalUrl', title: 'Rec', external_url: 'https://v.test/1' });
   const plan = await planOf(fakeCanvas(routes), [one(7, 'Algebra')]);
-  const intro = plan.entries.find((e) => e.path === 'Algebra/01 Week 1/Intro.md');
-  assert.match(intro.md, /^# Intro\n\nHi/);
+  const intro = plan.entries.find((e) => e.path === 'Algebra/01 Week 1/Intro.pdf');
+  assert.equal(intro.page.title, 'Intro');
+  assert.match(intro.page.html, /Hi/);
   assert.match(plan.entries.find((e) => e.path === 'Algebra/Links.md').md, /\[Rec\]\(https:\/\/v\.test\/1\)/);
   assert.deepEqual(plan.notSaved.find((n) => n.title.endsWith('Closed')).reason, 'Locked until Friday');
 });
@@ -494,9 +495,9 @@ test('plan: messages go with their course; the rest in Other messages; two of on
   routes['/api/v1/conversations/3?auto_mark_as_read=false'] = { subject: 'Hi', last_message_at: '2026-02-01T00:00:00Z', messages: [] };
   const plan = await planOf(fakeCanvas(routes), [one(7, 'Algebra')], { messages: true });
   const paths = plan.entries.map((e) => e.path);
-  assert.ok(paths.some((p) => /^Algebra\/\d+ Messages\/2026-02-01 Hi\/2026-02-01 Hi\.md$/.test(p)));
-  assert.ok(paths.some((p) => /^Algebra\/\d+ Messages\/2026-02-01 Hi\.md$/.test(p)));
-  assert.ok(paths.some((p) => /^Other messages\/01 Messages\/Group\.md$/.test(p)));
+  assert.ok(paths.some((p) => /^Algebra\/\d+ Messages\/2026-02-01 Hi\/2026-02-01 Hi\.pdf$/.test(p)));
+  assert.ok(paths.some((p) => /^Algebra\/\d+ Messages\/2026-02-01 Hi\.pdf$/.test(p)));
+  assert.ok(paths.some((p) => /^Other messages\/01 Messages\/Group\.pdf$/.test(p)));
   assert.equal(paths.filter((p) => !p).length, 0);
 });
 
@@ -508,8 +509,8 @@ test('plan: messages of a course not picked wait for that course, not Other mess
   const plan = await planOf(fakeCanvas(routes), [one(7, 'Algebra')], { messages: true, otherCourses: [one(8, 'Biology')] });
   const paths = plan.entries.map((e) => e.path);
   assert.ok(!paths.some((p) => p.includes('Other course')));
-  assert.ok(paths.some((p) => /^Other messages\/01 Messages\/Unlisted course\.md$/.test(p))); // a course not in the list has no folder to wait for
-  assert.ok(paths.some((p) => /^Other messages\/01 Messages\/Group\.md$/.test(p)));
+  assert.ok(paths.some((p) => /^Other messages\/01 Messages\/Unlisted course\.pdf$/.test(p))); // a course not in the list has no folder to wait for
+  assert.ok(paths.some((p) => /^Other messages\/01 Messages\/Group\.pdf$/.test(p)));
   assert.deepEqual(plan.waiting, [{ title: 'Biology', reason: '1 inbox conversation, saved when you download that course' }]); // and the report says so
 });
 
@@ -522,7 +523,7 @@ test('plan: a course Canvas will not give still has its messages and group space
   const plan = await planOf(fakeCanvas(routes), [one(7, 'Algebra'), one(6, 'Closed')], { messages: true });
   const paths = plan.entries.map((e) => e.path);
   assert.deepEqual(plan.notSaved.find((n) => n.title === 'Closed'), { title: 'Closed', reason: 'This course is closed to you' });
-  assert.ok(paths.some((p) => /^Other messages\/01 Messages\/From closed\.md$/.test(p)));
+  assert.ok(paths.some((p) => /^Other messages\/01 Messages\/From closed\.pdf$/.test(p)));
   assert.ok(paths.some((p) => /^Other groups\/01 Group - Team 6\/plan\.pdf$/.test(p)));
 });
 
@@ -559,8 +560,8 @@ test('plan: each course\'s grades page has its total, from one listing of enroll
   const routes = base();
   routes['/api/v1/users/self/enrollments?type[]=StudentEnrollment&state[]=active&state[]=completed&per_page=100'] = [{ course_id: 7, grades: { final_grade: 'HD', final_score: 88 } }, { course_id: 8, grades: {} }];
   const plan = await planOf(fakeCanvas(routes), [one(7, 'Algebra')]);
-  const grades = plan.entries.find((e) => /^Algebra\/\d+ Grades\/Grades\.md$/.test(e.path));
-  assert.match(grades.md, /Course total: HD \(88%\)/);
+  const grades = plan.entries.find((e) => /^Algebra\/\d+ Grades\/Grades\.pdf$/.test(e.path));
+  assert.match(grades.page.html, /Course total:.*HD \(88%\)/);
 });
 
 // ── lecturers' notes (Canvadocs) ──
@@ -645,6 +646,7 @@ test('annotations: a submitted file the lecturer wrote notes on gets an annotate
   const entry = plan.entries.find((e) => e.path.endsWith('Annotated - report.pdf'));
   assert.deepEqual(Object.keys(entry).sort(), ['annotated', 'path', 'size', 'title']);
   assert.equal(planTotals({ entries: [entry] }).files, 1);
+  assert.equal(planTotals({ entries: [{ path: 'p.pdf', page: { title: 'p', html: '' }, size: 1 }] }).pages, 1);
 });
 
 test('annotations: when Canvadocs will not answer, the report says so', async () => {
@@ -694,7 +696,7 @@ test('plan: totals read before a later page of enrollments failed are kept', asy
   routes['/api/v1/users/self/enrollments?type[]=StudentEnrollment&state[]=active&state[]=completed&per_page=100'] = { data: [{ course_id: 7, grades: { final_score: 88 } }], next: '/enrollments-2' };
   routes['/enrollments-2'] = () => { throw status(500); };
   const plan = await planOf(fakeCanvas(routes), [one(7, 'Algebra')]);
-  assert.match(plan.entries.find((e) => e.path.endsWith('Grades.md')).md, /Course total: 88%/);
+  assert.match(plan.entries.find((e) => e.path.endsWith('Grades.pdf')).page.html, /Course total:.*88%/);
 });
 
 test('plan: no messages are read unless asked for', async () => {
@@ -1034,6 +1036,15 @@ test('saver: Stop cancels what is downloading', async () => {
   controller.abort();
   await assert.rejects(saving, /USER_CANCELED/);
   assert.deepEqual(api.cancelled, [1]);
+  saver.close();
+});
+
+test('saver: a page made in the panel (its PDF) is written from that Blob', async () => {
+  const api = fakeDownloads(finish);
+  const saver = chromeSaver(api, 'R', new AbortController().signal);
+  await saver.save({ path: 'p.pdf', blob: new Blob(['%PDF-1.7']), size: 8, title: 'p' });
+  assert.match(api.started[0].url, /^blob:/);
+  assert.equal(api.started[0].filename, 'R/p.pdf');
   saver.close();
 });
 

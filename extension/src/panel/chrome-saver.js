@@ -54,7 +54,8 @@ export function chromeSaver(downloads, root, signal, { loggedIn = async () => tr
 
   return {
     async save(entry) {
-      const blob = entry.md !== undefined ? URL.createObjectURL(new Blob([entry.md], { type: 'text/markdown' })) : null;
+      const made = entry.blob ?? (entry.md !== undefined ? new Blob([entry.md], { type: 'text/markdown' }) : null); // made here, not a Canvas link
+      const blob = made && URL.createObjectURL(made);
       const filename = `${root}/${entry.path}`;
       try {
         for (let attempt = 1; ; attempt++) {

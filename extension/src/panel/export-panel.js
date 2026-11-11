@@ -10,6 +10,7 @@ import { steady } from '../canvas/steady.js';
 import { canvadocs } from '../canvas/canvadocs.js';
 import { listCourses, planExport, planTotals, runExport } from '../export.js';
 import { chromeSaver } from './chrome-saver.js';
+import { pagePdfs } from './page-pdfs.js';
 import { exportStore } from './export-store.js';
 import { exportPicker, exportRunning, exportSummary, exportFinished, exportProblem, exportResume } from './view.js';
 
@@ -128,9 +129,11 @@ export function exportFlow({ area, bar, setBusy, close }) {
     const done = new Set((await exportStore.get('saved')) ?? []);
     for (const path of await saver.tidy()) done.add(path);
     const remember = () => exportStore.put('saved', [...done]);
-    // An annotated copy is made now, from a fresh link: the one read during
-    // the size check may be a day old.
+    const pdf = pagePdfs(canvasFiles(paced));
+    // A page's PDF is made now, as is an annotated copy, from a fresh link:
+    // the one read during the size check may be a day old.
     const ready = async (entry) => {
+      if (entry.page) return { ...entry, blob: await pdf(entry.page) };
       if (!entry.annotated) return entry;
       const { course, assignment, attachment } = entry.annotated;
       const { data } = await paced.get(`/api/v1/courses/${course}/assignments/${assignment}/submissions/self`);

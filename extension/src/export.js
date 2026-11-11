@@ -11,12 +11,12 @@ import { scanCourse, scanGroup } from './canvas/scan.js';
 import { readMessages } from './canvas/talk.js';
 import { stopsTheRun, stopReason } from './canvas/stops.js';
 import { readAll } from './canvas/read.js';
-import { htmlToMd } from './pack/formats/html-to-md.js';
 import { pathAllocator, safe } from './pack/names.js';
 
 export const BIG_FILE = 200 * 1024 * 1024;
 const PARALLEL_SAVES = 3;
 const MAX_FILE_NAME = 80; // folders are capped too: paths have a limit on Windows
+const PDF_BYTES = 30 * 1024; // a page's PDF before its text and pictures: mostly its font
 
 // At most `max` characters, never half of one (𝐍 is two UTF-16 units: half
 // of it is not a valid name), and few enough bytes for the disk: a name of
@@ -93,9 +93,10 @@ export async function planExport(canvas, files, courses, { messages = false, rep
       if (item.kind === 'link') links.push(`- ${folder.title}: [${item.title}](${item.url})`);
       else if (item.locked) notSaved.push({ title, reason: item.locked });
       else if (item.kind === 'page') {
-        const path = place(at, `${fileName(item.title)}.md`, `page:${pageNo++}`);
-        const md = `# ${item.title}\n\n${htmlToMd(item.html)}\n`;
-        entries.push({ path, md, size: md.length, title });
+        // An export is kept to be read: its pages are PDFs, made as they are saved.
+        const path = place(at, `${fileName(item.title)}.pdf`, `page:${pageNo++}`);
+        const html = item.html ?? '';
+        entries.push({ path, page: { title: item.title, html }, size: PDF_BYTES + html.length, title });
       } else {
         const meta = await info;
         if (!(meta?.url || meta?.annotated) || meta.locked) {
@@ -212,7 +213,7 @@ export const planTotals = ({ entries }) => {
   const big = entries.filter((e) => e.size > BIG_FILE);
   return {
     files: entries.filter((e) => e.url || e.annotated).length,
-    pages: entries.filter((e) => e.md !== undefined).length,
+    pages: entries.filter((e) => e.page || e.md !== undefined).length,
     bytes: entries.reduce((n, e) => n + e.size, 0),
     bigFiles: big.length,
     bigBytes: big.reduce((n, e) => n + e.size, 0),

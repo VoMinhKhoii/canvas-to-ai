@@ -9,8 +9,10 @@
     "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
+    "html-to-pdfmake": "^2.5.36",
     "jszip": "^3.10.2",
     "pdfjs-dist": "^6.4.299",
+    "pdfmake": "^0.3.14",
     "turndown": "^7.2.4",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
