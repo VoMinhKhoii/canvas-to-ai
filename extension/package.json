@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "fonts": "node font-coverage.mjs"
   },
   "dependencies": {
     "html-to-pdfmake": "^2.5.36",

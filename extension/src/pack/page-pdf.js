@@ -8,16 +8,31 @@
 // PDFs take), width, height } in pixels. A picture not in it is left out, its
 // alt text kept.
 import htmlToPdfmake from 'html-to-pdfmake';
+import { COVERED } from './font-coverage.js';
 
 const WIDTH = 595.28 - 2 * 56; // A4, less the margins
 const HEIGHT = 600; // a picture leaves room for a line or two on its page
 const PX = 0.75; // points to a CSS pixel
-// Emoji the font has none of (they would be empty boxes); text symbols such
-// as © ™ ↔, which it has, stay.
-const EMOJI = /\p{Emoji_Presentation}|\p{Extended_Pictographic}\uFE0F|[\u{1F3FB}-\u{1F3FF}\uFE0F\u200D]/gu;
-// Letters of a script the font has no glyphs for (Chinese, Japanese, Korean,
-// Arabic, Thai…): a page with them stays Markdown, or its text would be lost.
-export const OTHER_SCRIPT = /(?![\p{Script=Latin}\p{Script=Greek}\p{Script=Cyrillic}])\p{L}/u;
+// What the font cannot draw would be an empty box: an arrow or a tick becomes
+// its look-alike, any other symbol or emoji is left out, and a page with
+// letters it cannot draw (Chinese, Japanese, Korean, Arabic, Thai…) is not
+// made a PDF at all (lacksLetters), or its text would be lost.
+const LOOK_ALIKE = { '→': '->', '←': '<-', '↔': '<->', '⇒': '=>', '⇐': '<=', '⇔': '<=>', '✓': '√', '✔': '√', '☑': '√' };
+function drawn(c) {
+  const cp = c.codePointAt(0);
+  let lo = 0;
+  let hi = COVERED.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (cp < COVERED[mid][0]) hi = mid - 1;
+    else if (cp > COVERED[mid][1]) lo = mid + 1;
+    else return true;
+  }
+  return false;
+}
+const letters = (text) => [...text.normalize('NFC')]; // a decomposed ắ is drawn as one letter
+export const drawable = (text) => letters(text).map((c) => (drawn(c) || /\s/.test(c) ? c : LOOK_ALIKE[c] ?? '')).join('');
+export const lacksLetters = (text) => letters(text).some((c) => /\p{L}/u.test(c) && !drawn(c));
 const GONE = 'script, style, noscript, template, link, meta, form, button, input, select, textarea, svg, math, object, embed, audio, canvas, .screenreader-only';
 
 // plain: without the page's own styles and with its tables as lines of
@@ -71,13 +86,13 @@ export function pageDoc(title, html, { pictures = new Map(), plain = false, base
     }
   }
 
-  const content = htmlToPdfmake(body.innerHTML, { window: globalThis, removeExtraBlanks: true, ignoreStyles: ['font-family'], replaceText: (t) => t.replace(EMOJI, ''), defaultStyles: { a: { color: '#1a5fb4', decoration: 'underline' } } });
+  const content = htmlToPdfmake(body.innerHTML, { window: globalThis, removeExtraBlanks: true, ignoreStyles: ['font-family'], replaceText: drawable, defaultStyles: { a: { color: '#1a5fb4', decoration: 'underline' } } });
   fit(content, sizes);
   return {
-    info: { title },
+    info: { title: drawable(title) },
     pageSize: 'A4',
     pageMargins: [56, 56, 56, 56],
-    content: [{ text: title, style: 'title' }, ...[content].flat()],
+    content: [{ text: drawable(title), style: 'title' }, ...[content].flat()],
     defaultStyle: { font: 'Roboto', fontSize: 11, lineHeight: 1.25 },
     styles: { title: { fontSize: 20, bold: true, margin: [0, 0, 0, 12] } },
   };

@@ -99,11 +99,17 @@ test('page pdf: the page\'s own links point at its Canvas site; emoji, which the
   assert.match(json, /"link":"https:\/\/uni\.instructure\.com\/media_objects_iframe\/m-1"/);
   assert.doesNotMatch(words(doc.content), /📌|👍|🏽/);
   assert.match(words(doc.content), /Read/);
-  assert.match(words(pageDoc('S', '<p>A ↔ B; © 2026; ACME™ ✔️ ❤️</p>').content), /A ↔ B; © 2026; ACME™ +$/); // text symbols kept; emoji-style ones gone
+  assert.match(words(pageDoc('S ★', '<p>A ↔ B; © 2026; ACME™ ⚠ Done ✔️ ❤️ x ≤ π</p>').content), /^S +A <-> B; © 2026; ACME™ +Done √ +x ≤ π *$/); // what the font draws stays, arrows and ticks become look-alikes, the rest goes
 });
 
-test('page pdf: letters of a script the font lacks are noticed; Vietnamese, Greek and Cyrillic are not', async () => {
-  const { OTHER_SCRIPT } = await import('../src/pack/page-pdf.js');
-  for (const s of ['学生', 'こんにちは', '안녕', 'مرحبا', 'สวัสดี']) assert.ok(OTHER_SCRIPT.test(`<p>${s}</p>`), s);
-  for (const s of ['Tiếng Việt ắ ự', 'Ωμέγα', 'Привет', '→ 📌 © 1 + 2']) assert.ok(!OTHER_SCRIPT.test(`<p>${s}</p>`), s);
+test('page pdf: letters the font cannot draw are noticed; Vietnamese (even decomposed), Greek and Cyrillic are not', async () => {
+  const { lacksLetters } = await import('../src/pack/page-pdf.js');
+  for (const s of ['学生', 'こんにちは', '안녕', 'مرحبا', 'สวัสดี']) assert.ok(lacksLetters(`<p>${s}</p>`), s);
+  for (const s of ['Tiếng Việt ắ ự', 'Tiếng Việt'.normalize('NFD'), 'Ωμέγα', 'Привет', '→ 📌 ⚠ © 1 + 2']) assert.ok(!lacksLetters(`<p>${s}</p>`), s);
+});
+
+test('page pdf: the font\'s coverage table matches the font pdfmake ships (npm run fonts after an upgrade)', async () => {
+  const { coverage } = await import('../font-coverage.mjs');
+  const { COVERED } = await import('../src/pack/font-coverage.js');
+  assert.deepEqual(COVERED, coverage());
 });
