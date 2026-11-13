@@ -278,6 +278,7 @@ test('everything: an earlier attempt is kept beside the last, named for its atte
   const essay = folder(course, 'submissions').sections[0].items;
   const draft = essay.find((i) => i.id === 80);
   assert.equal(draft.details.name, 'Attempt 1 - draft.pdf');
+  assert.equal(draft.fileName, 'draft.pdf'); // its kind comes from its own name: "Attempt 1 - Makefile" is still a Makefile
   assert.equal(draft.details.url, 'https://x.instructure.com/f/80');
 });
 
