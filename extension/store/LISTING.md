@@ -31,8 +31,9 @@ What it reads
 • Documents: Word (.docx and old .doc), .odt, .rtf, .txt, Markdown and EPUB
 • Spreadsheets: Excel, .ods, .csv, with formulas kept
 • Code, Jupyter notebooks, captions (.vtt, .srt), calendar invites and .zip archives
-• Canvas pages, assignments, discussions, announcements and the syllabus
-• Your own submissions: the files, text and links you handed in, under each assignment
+• Canvas pages, assignments, quizzes, discussions, announcements and the syllabus, including what isn't in a module
+• Your own submissions: the files, text and links you handed in, earlier attempts too, under each assignment
+• Your grades, rubric marks and teacher comments, and your group's files, pages and discussions
 
 Also in the ⋯ menu
 • Download the files you picked, or the whole course, into Downloads › Canvas › your course, one folder per week

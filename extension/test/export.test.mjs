@@ -6,7 +6,7 @@ import './helpers/dom.mjs';
 
 const { steady } = await import('../src/canvas/steady.js');
 const { tabCanvas } = await import('../src/canvas/tab-adapter.js');
-const { scanCourse, scanGroup } = await import('../src/canvas/scan.js');
+const { scanCourse, scanCourseInFull, scanGroup } = await import('../src/canvas/scan.js');
 const { canvadocs } = await import('../src/canvas/canvadocs.js');
 const { threadHtml, feedbackHtml, gradesHtml, readMessages } = await import('../src/canvas/talk.js');
 const { listCourses, planExport, planTotals, runExport, BIG_FILE } = await import('../src/export.js');
@@ -687,6 +687,27 @@ test('plan: each group goes in its course\'s folder; a group of no listed course
   assert.ok(paths.some((p) => /^Algebra\/\d+ Group - Team 6\/Submissions - Week 3\/draft\.docx$/.test(p)));
   assert.ok(paths.some((p) => /^Other groups\/01 Group - Club\/plan\.pdf$/.test(p)));
   assert.ok(!paths.some((p) => p.includes('Lab 2')));
+});
+
+test('panel scan: what Download all of Canvas reads for a course, to pick and copy, without replies or notes', async () => {
+  const routes = { ...base(), ...groupRoutes(3), ...groupRoutes(5) };
+  routes['/api/v1/users/self/enrollments?type[]=StudentEnrollment&state[]=active&state[]=completed&per_page=100'] = [{ course_id: 8, grades: { final_score: 50 } }, { course_id: 7, grades: { final_grade: 'DI', final_score: 73.9 } }];
+  routes['/api/v1/users/self/groups?per_page=100'] = [{ id: 3, name: 'Team 6', course_id: 7 }, { id: 5, name: 'Lab 2', course_id: 8 }];
+  const canvas = fakeCanvas(routes);
+  const course = await scanCourseInFull(canvas, '7'); // the id from the tab's address
+  assert.match(folder(course, 'grades').sections[0].items[0].html, /Course total: DI \(73\.9%\)/);
+  assert.match(folder(course, 'submissions').sections[0].items.find((i) => i.title === 'Grade and feedback').html, /Grade: HD/);
+  assert.deepEqual(titles(folder(course, 'other-pages')), ['Extra']);
+  assert.deepEqual(course.folders.filter((f) => f.kind === 'group').map((f) => f.title), ['Group - Team 6']);
+  assert.doesNotMatch(titles(folder(course, 'other-discussions')).join(), /Reply/);
+  assert.doesNotMatch(folder(course, 'other-discussions').sections[0].items.map((i) => i.html).join(), /Reply!/);
+  assert.ok(!canvas.asked.some((u) => /\/view\?/.test(u))); // no replies read
+});
+
+test('panel scan: no enrollments or groups from Canvas still gives the course', async () => {
+  const course = await scanCourseInFull(fakeCanvas(base()), 7);
+  assert.equal(folder(course, 'grades').sections[0].items[0].html.includes('Course total'), false);
+  assert.ok(!course.folders.some((f) => f.kind === 'group'));
 });
 
 test('plan: totals read before a later page of enrollments failed are kept', async () => {
