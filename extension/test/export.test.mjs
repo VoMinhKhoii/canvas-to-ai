@@ -695,7 +695,7 @@ test('panel scan: what Download all of Canvas reads for a course, to pick and co
   routes['/api/v1/users/self/enrollments?type[]=StudentEnrollment&state[]=active&state[]=completed&per_page=100'] = [{ course_id: 8, grades: { final_score: 50 } }, { course_id: 7, grades: { final_grade: 'DI', final_score: 73.9 } }];
   routes['/api/v1/users/self/groups?per_page=100'] = [{ id: 3, name: 'Team 6', course_id: 7 }, { id: 5, name: 'Lab 2', course_id: 8 }];
   const canvas = fakeCanvas(routes);
-  const course = await scanCourseInFull(canvas, '7'); // the id from the tab's address
+  const course = await scanCourseInFull(canvas, 7);
   assert.match(folder(course, 'grades').sections[0].items[0].html, /Course total: DI \(73\.9%\)/);
   assert.match(folder(course, 'submissions').sections[0].items.find((i) => i.title === 'Grade and feedback').html, /Grade: HD/);
   assert.deepEqual(titles(folder(course, 'other-pages')), ['Extra']);

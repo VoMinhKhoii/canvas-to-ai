@@ -98,7 +98,7 @@ async function scan() {
       return;
     }
     const canvas = await tabCanvas(tab.id);
-    const course = await scanCourseInFull(canvas, COURSE_URL.exec(tab.url)[1], { onProgress: (text) => setStatus(text) });
+    const course = await scanCourseInFull(canvas, Number(COURSE_URL.exec(tab.url)[1]), { onProgress: (text) => setStatus(text) });
     const files = canvasFiles(canvas);
     Object.assign(state, { course, sel: createSelection(course), open: new Set(), files, packs: createPackBuilder({ files, pdf }), pack: null });
     $('course').textContent = course.name;
