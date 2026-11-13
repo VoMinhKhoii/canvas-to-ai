@@ -1,12 +1,12 @@
-# Chrome Web Store submission: Canvas to AI 0.6.0
+# Chrome Web Store submission: Canvas to AI 0.7.0
 
 Everything the developer dashboard asks for, in the order it asks. Paste each block as is.
 
 ## Package
 
-- Upload `canvas-to-ai-0.6.0.zip`, built from this commit:
+- Upload `canvas-to-ai-0.7.0.zip`, built from this commit:
   ```bash
-  cd extension && npm ci && npm test && npm run build && (cd dist && zip -X -r ../canvas-to-ai-0.6.0.zip .)
+  cd extension && npm ci && npm test && npm run build && (cd dist && zip -X -r ../canvas-to-ai-0.7.0.zip .)
   ```
   The zip holds `dist/` only: `manifest.json` at its root, no source maps, tests or `node_modules`.
 
@@ -31,8 +31,9 @@ What it reads
 • Documents: Word (.docx and old .doc), .odt, .rtf, .txt, Markdown and EPUB
 • Spreadsheets: Excel, .ods, .csv, with formulas kept
 • Code, Jupyter notebooks, captions (.vtt, .srt), calendar invites and .zip archives
-• Canvas pages, assignments, discussions, announcements and the syllabus
-• Your own submissions: the files, text and links you handed in, under each assignment
+• Canvas pages, assignments, quizzes, discussions, announcements and the syllabus, including what isn't in a module
+• Your own submissions: the files, text and links you handed in, earlier attempts too, under each assignment
+• Your grades, rubric marks and teacher comments, and your group's files, pages and discussions
 
 Also in the ⋯ menu
 • Download the files you picked, or the whole course, into Downloads › Canvas › your course, one folder per week

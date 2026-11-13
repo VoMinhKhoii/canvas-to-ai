@@ -10,7 +10,7 @@
 import { scanCourse, scanGroup } from './canvas/scan.js';
 import { readMessages } from './canvas/talk.js';
 import { stopsTheRun, stopReason } from './canvas/stops.js';
-import { readAll } from './canvas/read.js';
+import { readAll, studentEnrollments, studentGroups } from './canvas/read.js';
 import { htmlToMd } from './pack/formats/html-to-md.js';
 import { pathAllocator, safe } from './pack/names.js';
 
@@ -134,32 +134,17 @@ export async function planExport(canvas, files, courses, { messages = false, rep
   }
   const messageFolder = (sections) => ({ id: 'messages', kind: 'messages', title: 'Messages', sections });
 
-  // A listing the export can do without: what was read before a failure is
-  // kept and the run goes on, unless the failure stops the run.
-  async function listing(url) {
-    const out = [];
-    try {
-      for (let next = url; next; ) {
-        const page = await canvas.get(next);
-        out.push(...page.data);
-        next = page.next;
-      }
-    } catch (e) {
-      if (stopsTheRun(e)) throw e;
-    }
-    return out;
-  }
 
   // Each course's total, from the student's enrollments: one listing for all
   // (none when every course was read before).
   onProgress('Reading your grades and groups…');
-  const enrollments = courses.some((c) => !known.courses?.[c.id]) ? await listing('/api/v1/users/self/enrollments?type[]=StudentEnrollment&state[]=active&state[]=completed&per_page=100') : [];
+  const enrollments = courses.some((c) => !known.courses?.[c.id]) ? await studentEnrollments(canvas) : [];
   const totals = new Map(enrollments.filter((e) => e.grades).map((e) => [e.course_id, e.grades]));
 
   // The student's groups: each one's space goes in its course's folder.
   let groups = known.groups;
   if (!groups) {
-    groups = await listing('/api/v1/users/self/groups?per_page=100');
+    groups = await studentGroups(canvas);
     await keep('groups', groups);
   }
   const groupFolders = async (list) => (await Promise.all(list.map((g) => scanGroup(canvas, g, { replies })))).filter((f) => f.sections.length);

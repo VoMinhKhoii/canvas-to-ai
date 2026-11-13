@@ -1,6 +1,6 @@
 // The side panel: finds the Canvas course tab, scans the course, keeps the
 // selection, and runs Copy text for AI, Download and Save with pictures.
-import { scanCourse } from '../canvas/scan.js';
+import { scanCourseInFull } from '../canvas/scan.js';
 import { tabCanvas, canvasFiles } from '../canvas/tab-adapter.js';
 import { createPackBuilder } from '../pack/build.js';
 import { safe, pathAllocator } from '../pack/names.js';
@@ -98,7 +98,7 @@ async function scan() {
       return;
     }
     const canvas = await tabCanvas(tab.id);
-    const course = await scanCourse(canvas, COURSE_URL.exec(tab.url)[1], { onProgress: (text) => setStatus(text) });
+    const course = await scanCourseInFull(canvas, Number(COURSE_URL.exec(tab.url)[1]), { onProgress: (text) => setStatus(text) });
     const files = canvasFiles(canvas);
     Object.assign(state, { course, sel: createSelection(course), open: new Set(), files, packs: createPackBuilder({ files, pdf }), pack: null });
     $('course').textContent = course.name;

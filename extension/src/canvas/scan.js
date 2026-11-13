@@ -14,7 +14,7 @@ import { limiter } from '../limit.js';
 import { lockedReason } from './locked.js';
 import { fileDetails, asFileItem } from './file.js';
 import { feedbackHtml, gradesHtml, quizScoreHtml, repliesHtml } from './talk.js';
-import { readAll } from './read.js';
+import { readAll, studentEnrollments, studentGroups } from './read.js';
 import { stopsTheRun } from './stops.js';
 
 const LIMIT = 6; // requests in flight, well under Canvas's rate limit
@@ -246,6 +246,24 @@ export async function scanCourse(canvas, courseId, { onProgress = () => {}, ever
     kept.push(folder);
   }
   return { id: String(courseId), name: course.name, code: course.course_code ?? '', folders: kept };
+}
+
+// A course as the side panel shows it: what Download all of Canvas reads for
+// it (outside the modules, quizzes, grades and feedback, earlier attempts,
+// the course total, the student's group spaces), so all of it can be copied.
+// Left to that download: discussion replies and inbox messages (other
+// people's words, only when turned on) and lecturers' notes (a PDF built by
+// Canvadocs at save time).
+export async function scanCourseInFull(canvas, courseId, { onProgress = () => {} } = {}) {
+  const [enrollments, groups] = await Promise.all([
+    studentEnrollments(canvas),
+    studentGroups(canvas),
+  ]);
+  const ours = (x) => x.course_id === courseId;
+  const course = await scanCourse(canvas, courseId, { everything: true, total: enrollments.find(ours)?.grades, onProgress });
+  const spaces = await Promise.all(groups.filter(ours).map((g) => scanGroup(canvas, g)));
+  course.folders.push(...spaces.filter((f) => f.sections.length));
+  return course;
 }
 
 // A student group's own space (a course's group sets give each group one):

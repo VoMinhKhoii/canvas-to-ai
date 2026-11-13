@@ -19,9 +19,10 @@ export function fileDetails(data) {
 }
 
 // A Canvas file object as a Course item with its details, saved as `name`
-// (its own name unless given).
+// (its own name unless given). Its kind is read from its own name: a renamed
+// "Makefile" is still a Makefile.
 export function asFileItem(data, name) {
   const details = fileDetails(data);
   const title = name ?? details.name;
-  return { kind: 'file', id: data.id, title, fileName: title, locked: details.locked, details: { ...details, name: title } };
+  return { kind: 'file', id: data.id, title, fileName: details.name, locked: details.locked, details: { ...details, name: title } };
 }
