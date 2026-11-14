@@ -1,6 +1,6 @@
 # Canvas to AI: privacy policy
 
-Last updated: 13 November 2026
+Last updated: 14 November 2026
 
 Canvas to AI is a Chrome extension that reads a Canvas course you have open and turns the
 materials you pick into text you can paste into an AI chat, or files in your Downloads folder.
@@ -28,6 +28,24 @@ a copy of that file with the notes on it. Only if you turn them on, it also read
 
 These are saved to your Downloads folder and nowhere else.
 
+### OneDrive and Teams (only if you turn it on)
+
+If you choose **⋯ › OneDrive and Teams** and allow it, Chrome lets the extension open SharePoint
+(`*.sharepoint.com`), where Microsoft keeps OneDrive and Teams files, and see the address of a Teams
+tab (`*.teams.microsoft.com`, `*.teams.cloud.microsoft`) so it can tell you where that class's files
+are. It reads nothing from Teams itself. With your own Microsoft login,
+it then reads:
+
+- the list of files people shared with you, including Teams meeting recordings and their
+  transcripts;
+- the folder open in your SharePoint or OneDrive tab (for example a Teams class's files), and the
+  folders inside it;
+- the files and transcripts you pick, to convert or download them.
+
+It does not read your email, your Teams chats or anything else in Microsoft 365, and it does not
+register anything with Microsoft or keep a Microsoft token. You can take the permission back at
+any time on the extension's details page in Chrome.
+
 Nothing is read before you agree to the terms card.
 
 ## Where it goes
@@ -36,8 +54,9 @@ Nowhere except your own computer.
 
 - Everything is converted inside the extension, on your computer.
 - The extension makes requests only to Canvas (`*.instructure.com`, or your school's own Canvas
-  address if you allow it there) and the hosts Canvas serves its files from
-  (`*.canvas-user-content.com`, `*.inscloudgate.net`).
+  address if you allow it there), the hosts Canvas serves its files from
+  (`*.canvas-user-content.com`, `*.inscloudgate.net`) and, if you turned on OneDrive and Teams,
+  SharePoint (`*.sharepoint.com`).
 - It sends nothing to the developer or to anyone else. There are no analytics, no tracking, no
   ads and no server.
 - The text goes to your clipboard when you press **Copy text for AI**, and files go to your
@@ -57,8 +76,8 @@ while the side panel is open and is gone when you close it.
 
 - It does not collect, sell or share personal information.
 - It does not use your data for advertising, credit or any purpose other than the one above.
-- It does not read anything from websites other than Canvas.
-- It does not change anything in Canvas. One thing to know: Canvas counts a page, assignment or
+- It does not read anything from websites other than Canvas and, if you turned it on, SharePoint.
+- It does not change anything in Canvas or in OneDrive and Teams. One thing to know: Canvas counts a page, assignment or
   discussion the extension reads as one you viewed, as if you had opened it. A module step that
   only asks you to view an item can then show as done, and your lecturer may see it as viewed.
   Unread inbox messages stay unread.
