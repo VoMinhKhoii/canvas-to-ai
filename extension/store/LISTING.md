@@ -1,12 +1,12 @@
-# Chrome Web Store submission: Canvas to AI 0.7.0
+# Chrome Web Store submission: Canvas to AI 0.8.0
 
 Everything the developer dashboard asks for, in the order it asks. Paste each block as is.
 
 ## Package
 
-- Upload `canvas-to-ai-0.7.0.zip`, built from this commit:
+- Upload `canvas-to-ai-0.8.0.zip`, built from this commit:
   ```bash
-  cd extension && npm ci && npm test && npm run build && (cd dist && zip -X -r ../canvas-to-ai-0.7.0.zip .)
+  cd extension && npm ci && npm test && npm run build && (cd dist && zip -X -r ../canvas-to-ai-0.8.0.zip .)
   ```
   The zip holds `dist/` only: `manifest.json` at its root, no source maps, tests or `node_modules`.
 
@@ -38,10 +38,11 @@ What it reads
 Also in the ⋯ menu
 • Download the files you picked, or the whole course, into Downloads › Canvas › your course, one folder per week
 • Save with pictures: the text plus the slide and page pictures it refers to, ready to drag into a chat
+• OneDrive and Teams: your class's Teams files and the lecture recordings shared with you, each with its transcript ready for AI
 • Download all of Canvas: every course you tick, current and past, one folder each, files as they are and pages as PDFs, with your grades, rubric marks, teacher comments, quizzes, group files and your lecturers' notes on your submissions. You see the total size first. If it stops midway (closed panel, lost Wi-Fi, ended login) it carries on where it was. Only if you turn them on: discussion replies and your inbox messages
 
 Private by design
-Everything is read and converted on your own computer, with your own Canvas login. Nothing is sent to the developer or anyone else: no account, no server, no analytics. Nothing is read until you agree to the short terms card.
+Everything is read and converted on your own computer, with your own Canvas or Microsoft login. Nothing is sent to the developer or anyone else: no account, no server, no analytics. Nothing is read until you agree to the short terms card.
 
 Use it fairly
 Course materials belong to your school and lecturers: use them for your own study. Some courses don't allow AI tools; check each course's rules.
@@ -66,7 +67,7 @@ Canvas to AI is made by a student. It is not made or endorsed by Instructure or 
 
 **Single purpose**:
 
-> Turns the Canvas course materials a student picks into text for an AI chat, or downloads them (with the student's own Canvas messages and discussions, if they opt in), on the student's own computer.
+> Turns the course materials a student picks (from Canvas, or the class files and lecture recordings in their school's OneDrive and Teams) into text for an AI chat, or downloads them (with the student's own Canvas messages and discussions, if they opt in), on the student's own computer.
 
 **Permission justifications**:
 
