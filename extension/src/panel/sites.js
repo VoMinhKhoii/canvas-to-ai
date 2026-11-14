@@ -1,28 +1,14 @@
 // The Canvas sites the extension may read: every *.instructure.com, and each
 // Canvas on a school's own address (canvas.school.edu) the student allowed.
 // Chrome's granted host permissions are the list: nothing else is stored.
-import { allowFileSite } from '../canvas/file.js';
+const INSTRUCTURE = 'https://*.instructure.com/*';
 
-const FILE_HOSTS_ONLY = /canvas-user-content\.com|inscloudgate\.net/; // file servers, never a Canvas to scan
-
-async function granted() {
-  const origins = chrome.permissions?.getAll ? (await chrome.permissions.getAll()).origins ?? [] : chrome.runtime.getManifest().host_permissions ?? [];
-  return origins.filter((o) => o.startsWith('https://') && !FILE_HOSTS_ONLY.test(o));
+// A site the student allowed is one exact origin; a wildcard grant (Canvas's
+// file hosts, or "on all sites" set in chrome://extensions) is not a Canvas.
+async function canvasSites() {
+  const { origins = [] } = chrome.permissions?.getAll ? await chrome.permissions.getAll() : {}; // Safari before 15.4: instructure.com only
+  return [INSTRUCTURE, ...origins.filter((o) => /^https:\/\/[^*]/.test(o))];
 }
-
-// A host permission pattern ("https://*.instructure.com/*") as a test of a URL.
-const matcher = (pattern) => {
-  const host = pattern.slice('https://'.length, pattern.indexOf('/', 'https://'.length));
-  const re = host.startsWith('*.') ? new RegExp(`^(.+\\.)?${host.slice(2).replace(/\./g, '\\.')}$`) : new RegExp(`^${host.replace(/\./g, '\\.')}$`);
-  return (url) => {
-    try {
-      const u = new URL(url);
-      return u.protocol === 'https:' && re.test(u.hostname);
-    } catch {
-      return false;
-    }
-  };
-};
 
 const latest = (tabs) => tabs.sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0) || b.active - a.active)[0];
 
@@ -30,14 +16,15 @@ const latest = (tabs) => tabs.sort((a, b) => (b.lastAccessed || 0) - (a.lastAcce
 // matches `path`, else the most recently used one. Safari has no lastAccessed:
 // a tab shown in a window comes first.
 export async function findCanvasTab(path = /^\//) {
-  const sites = await granted();
-  const onCanvas = (url) => sites.some((s) => matcher(s)(url)) && path.test(new URL(url).pathname);
-  for (const s of sites) if (!s.startsWith('https://*')) allowFileSite(s.slice(0, -2));
-  const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (active?.url && onCanvas(active.url)) return active;
-  const tabs = await chrome.tabs.query({ url: sites });
-  return latest(tabs.filter((t) => onCanvas(t.url)));
+  const url = await canvasSites();
+  const onPath = (t) => path.test(new URL(t.url).pathname);
+  const [active] = await chrome.tabs.query({ active: true, currentWindow: true, url });
+  if (active && onPath(active)) return active;
+  return latest((await chrome.tabs.query({ url })).filter(onPath));
 }
+
+// Another tab of the same Canvas site, when the one in use closes.
+export const findSiteTab = async (site) => latest(await chrome.tabs.query({ url: `${site}/*` }));
 
 // "canvas.school.edu", "https://canvas.school.edu/courses/12" → its origin, or null.
 export function siteOrigin(text) {
@@ -64,14 +51,12 @@ export async function looksLikeCanvas(origin, fetcher = fetch) {
 }
 
 // Ask Chrome for this school's Canvas. Must be the first thing a click does
-// (Chrome wants a user gesture). Kept only if the site turns out to be Canvas.
+// (Chrome wants a user gesture). Kept only if the site turns out to be Canvas;
+// otherwise throws what to tell the student.
 export async function allowSite(origin) {
   const origins = [`${origin}/*`];
-  if (!(await chrome.permissions.request({ origins }))) return 'declined';
-  if (await looksLikeCanvas(origin)) {
-    allowFileSite(origin);
-    return 'allowed';
-  }
+  if (!(await chrome.permissions.request({ origins }))) throw new Error('Chrome was not allowed to open it.');
+  if (await looksLikeCanvas(origin)) return;
   await chrome.permissions.remove({ origins }).catch(() => {});
-  return 'not-canvas';
+  throw new Error(`${new URL(origin).host} doesn't look like Canvas. Check the address in your Canvas tab.`);
 }

@@ -7,7 +7,7 @@ import { safe, pathAllocator } from '../pack/names.js';
 import { createSelection } from './selection.js';
 import { limiter } from '../limit.js';
 import { htmlToMd } from '../pack/formats/html-to-md.js';
-import { folderCards, folderCard, pickedLine, loadingCards, termsCard, esc } from './view.js';
+import { folderCards, folderCard, pickedLine, loadingCards, termsCard, ownSiteForm, esc } from './view.js';
 import { exportFlow } from './export-panel.js';
 import { findCanvasTab, siteOrigin, allowSite } from './sites.js';
 
@@ -41,23 +41,18 @@ const state = { course: null, sel: null, open: new Set(), files: null, packs: nu
 // recently used one (sites.js).
 const findCourseTab = () => findCanvasTab(COURSE_ID);
 
-// A Canvas on the school's own address (canvas.school.edu) needs the
-// student's OK once. Chrome asks; the panel then checks it is Canvas.
-const OWN_ADDRESS = `<form id="own-site" class="own-site">
-  <label for="own-site-url">Is your Canvas on your school's own address? Type it here:</label>
-  <input id="own-site-url" type="text" inputmode="url" placeholder="canvas.school.edu" autocomplete="off" spellcheck="false" />
-  <button class="text-button" type="submit">Allow Canvas to AI there</button>
-  <p id="own-site-note" role="status"></p>
-</form>`;
-function ownSiteForm() {
-  $('own-site')?.addEventListener('submit', async (e) => {
+// The school's own Canvas address, typed into ownSiteForm().
+function askForOwnSite() {
+  $('own-site').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const note = $('own-site-note');
     const origin = siteOrigin($('own-site-url').value);
-    if (!origin) return (note.textContent = 'Type the address you see in your Canvas tab, like canvas.school.edu.');
-    const result = await allowSite(origin).catch((err) => err.message); // Chrome's prompt: first thing the click does
-    if (result === 'allowed') return scan();
-    note.textContent = result === 'declined' ? 'Chrome was not allowed to open it.' : result === 'not-canvas' ? `${new URL(origin).host} doesn't look like Canvas. Check the address in your Canvas tab.` : result;
+    if (!origin) return ($('own-site-note').textContent = 'Type the address you see in your Canvas tab, like canvas.school.edu.');
+    try {
+      await allowSite(origin); // Chrome's prompt: the first thing the click does
+      scan();
+    } catch (err) {
+      $('own-site-note').textContent = err.message;
+    }
   });
 }
 
@@ -109,10 +104,11 @@ async function scan() {
       $('course').textContent = 'Canvas to AI';
       $('code').textContent = '';
       // Safari shows an extension a tab's address only on websites the student allowed it on.
+      // Safari keeps its own list of allowed websites (SAFARI_SITES).
       message(`Open a course in Canvas, then press <b>Scan again</b>.${SAVES_FILES ? '' : SAFARI_SITES}`);
-      if (chrome.permissions?.request && SAVES_FILES) {
-        $('folders').insertAdjacentHTML('beforeend', OWN_ADDRESS);
-        ownSiteForm();
+      if (SAVES_FILES) {
+        $('folders').insertAdjacentHTML('beforeend', ownSiteForm());
+        askForOwnSite();
       }
       return;
     }

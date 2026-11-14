@@ -11,17 +11,13 @@ import { canvadocs } from '../canvas/canvadocs.js';
 import { listCourses, planExport, planTotals, runExport } from '../export.js';
 import { chromeSaver } from './chrome-saver.js';
 import { exportStore } from './export-store.js';
-import { findCanvasTab } from './sites.js';
+import { findCanvasTab, findSiteTab } from './sites.js';
 import { exportPicker, exportRunning, exportSummary, exportFinished, exportProblem, exportResume } from './view.js';
 
 const $ = (id) => document.getElementById(id);
 const REMEMBER_EVERY = 20; // saves; a few redone after a crash cost nothing
 
 const newRoot = () => `Canvas export ${new Date().toISOString().slice(0, 10)} ${Date.now().toString(36)}`;
-const latest = (tabs) => tabs.sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0) || b.active - a.active)[0];
-
-// Another tab of the same Canvas site, when the one in use closes.
-const findSiteTab = async (site) => latest(await chrome.tabs.query({ url: `${site}/*` }));
 
 export function exportFlow({ area, bar, setBusy, close }) {
   let tab; // the Canvas tab's requests, unpaced: each run paces its own, tied to its Stop

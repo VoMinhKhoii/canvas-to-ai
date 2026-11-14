@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { findCanvasTab, siteOrigin, looksLikeCanvas, allowSite } from '../src/panel/sites.js';
 import { isCanvasFileUrl, fileDetails } from '../src/canvas/file.js';
+import { tabCanvas } from '../src/canvas/tab-adapter.js';
 
 // Chrome with these granted origins and these tabs ({ id, url, active, lastAccessed }).
 function fakeChrome(origins, tabs, { grant = true } = {}) {
@@ -11,13 +12,15 @@ function fakeChrome(origins, tabs, { grant = true } = {}) {
   globalThis.chrome = {
     asked,
     removed,
+    scripting: { executeScript: async () => {} },
     permissions: {
       getAll: async () => ({ origins: [...origins] }),
       request: async ({ origins: o }) => (asked.push(...o), grant && origins.push(...o), grant),
       remove: async ({ origins: o }) => (removed.push(...o), true),
     },
     tabs: {
-      query: async ({ active, url }) => tabs.filter((t) => (active ? t.active : [url].flat().some((p) => glob(p).test(t.url)))),
+      query: async ({ active, url }) => tabs.filter((t) => (!active || t.active) && [url].flat().some((p) => glob(p).test(t.url))),
+      get: async (id) => tabs.find((t) => t.id === id),
     },
   };
   return globalThis.chrome;
@@ -55,14 +58,19 @@ test('sites: file servers are not Canvas sites, and the course path must match',
   assert.equal((await findCanvasTab()).id, 2);
 });
 
-test('sites: an allowed site serves its own files; others still do not', async () => {
+test('sites: a Canvas the panel opened serves its own files; others still do not', async () => {
   assert.equal(isCanvasFileUrl('https://canvas.mine.edu/files/1/download?verifier=v'), false);
-  fakeChrome([...BUILT_IN, 'https://canvas.mine.edu/*'], []);
-  await findCanvasTab();
+  fakeChrome([...BUILT_IN, 'https://canvas.mine.edu/*'], [{ id: 1, url: 'https://canvas.mine.edu/courses/3' }]);
+  await tabCanvas(1);
   assert.equal(isCanvasFileUrl('https://canvas.mine.edu/files/1/download?verifier=v'), true);
   assert.equal(fileDetails({ display_name: 'a.pdf', url: 'https://canvas.mine.edu/files/1/download' }).url, 'https://canvas.mine.edu/files/1/download');
   assert.equal(isCanvasFileUrl('http://canvas.mine.edu/files/1/download'), false);
   assert.equal(isCanvasFileUrl('https://evil.example/files/1/download'), false);
+});
+
+test('sites: a wildcard grant ("on all sites") is not a Canvas', async () => {
+  fakeChrome([...BUILT_IN, 'https://*/*'], [{ id: 1, url: 'https://github.com/courses/12', active: true }]);
+  assert.equal(await findCanvasTab(COURSE), undefined);
 });
 
 test('sites: what the student types becomes an https origin', () => {
@@ -87,12 +95,13 @@ test('sites: a site that is not Canvas gives its permission back', async () => {
   const realFetch = globalThis.fetch;
   globalThis.fetch = answer(200, '<html>Blackboard</html>');
   try {
-    assert.equal(await allowSite('https://vuws.westernsydney.edu.au'), 'not-canvas');
+    await assert.rejects(allowSite('https://vuws.westernsydney.edu.au'), /vuws\.westernsydney\.edu\.au doesn't look like Canvas/);
     assert.deepEqual(chrome.removed, ['https://vuws.westernsydney.edu.au/*']);
     globalThis.fetch = answer(401, '{"status":"unauthenticated"}');
-    assert.equal(await allowSite('https://canvas.school.edu'), 'allowed');
+    await allowSite('https://canvas.school.edu');
+    assert.deepEqual(chrome.removed, ['https://vuws.westernsydney.edu.au/*']); // kept
     fakeChrome([...BUILT_IN], [], { grant: false });
-    assert.equal(await allowSite('https://canvas.school.edu'), 'declined');
+    await assert.rejects(allowSite('https://canvas.school.edu'), /not allowed/);
   } finally {
     globalThis.fetch = realFetch;
   }

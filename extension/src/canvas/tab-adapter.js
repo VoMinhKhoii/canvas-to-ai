@@ -1,4 +1,4 @@
-import { fileDetails } from './file.js';
+import { fileDetails, allowFileSite } from './file.js';
 
 // The Canvas seam's adapter in the extension: each request is answered by
 // tab-proxy.js inside the student's Canvas tab, so it carries their session.
@@ -11,6 +11,7 @@ import { fileDetails } from './file.js';
 // (findTab). Until it is, a request fails as `offline`, which steady() waits out.
 export async function tabCanvas(tabId, { findTab = async () => null, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
   const site = new URL((await chrome.tabs.get(tabId)).url).origin;
+  allowFileSite(site); // a Canvas on the school's own address serves its files from there
   const inject = async (id) => {
     const tab = await chrome.tabs.get(id);
     if (tab.discarded || tab.status === 'unloaded') { // unloaded: also a tab the browser restored but never opened
