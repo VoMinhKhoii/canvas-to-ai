@@ -34,7 +34,8 @@ const SELECT = '$select=id,name,size,file,folder,parentReference,webUrl,lastModi
 export function folderUrlOf(tabUrl) {
   const url = new URL(tabUrl);
   const id = url.searchParams.get('id');
-  if (id?.startsWith('/')) return url.origin + id;
+  // The id is a decoded path: a folder named "Week #1" must not end the URL at "#".
+  if (id?.startsWith('/')) return url.origin + id.split('/').map(encodeURIComponent).join('/');
   if (/^\/:f:\//.test(url.pathname)) return `${url.origin}${url.pathname}${url.search}`;
   const forms = url.pathname.indexOf('/Forms/');
   if (forms > 0) return url.origin + url.pathname.slice(0, forms);

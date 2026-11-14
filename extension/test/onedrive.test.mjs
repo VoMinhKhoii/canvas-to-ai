@@ -55,8 +55,10 @@ const baseRoutes = {
 };
 
 test('the folder a SharePoint tab shows', () => {
-  assert.equal(folderUrlOf(`${SITE}/sites/Class/Shared%20Documents/Forms/AllItems.aspx?id=%2Fsites%2FClass%2FShared%20Documents%2FGeneral&viewid=1`), `${SITE}/sites/Class/Shared Documents/General`);
+  assert.equal(folderUrlOf(`${SITE}/sites/Class/Shared%20Documents/Forms/AllItems.aspx?id=%2Fsites%2FClass%2FShared%20Documents%2FGeneral&viewid=1`), `${SITE}/sites/Class/Shared%20Documents/General`);
   assert.equal(folderUrlOf(`${MY}/my?id=%2Fpersonal%2Fme%2FDocuments%2FNotes`), `${MY}/personal/me/Documents/Notes`);
+  // A folder name with characters a URL reserves stays one folder name.
+  assert.equal(folderUrlOf(`${SITE}/sites/Class/Shared%20Documents/Forms/AllItems.aspx?id=%2Fsites%2FClass%2FShared%20Documents%2FWeek%20%231%20%3F%20100%25`), `${SITE}/sites/Class/Shared%20Documents/Week%20%231%20%3F%20100%25`);
   assert.equal(folderUrlOf(`${SITE}/sites/Class/Shared%20Documents/Forms/AllItems.aspx`), `${SITE}/sites/Class/Shared%20Documents`);
   assert.equal(folderUrlOf(`${SITE}/:f:/r/sites/Class/Shared%20Documents/General?csf=1`), `${SITE}/:f:/r/sites/Class/Shared%20Documents/General?csf=1`);
   assert.equal(folderUrlOf(`${MY}/`), null);
@@ -104,7 +106,7 @@ test('a Teams channel folder: its files, then a card per subfolder with its own 
   const routes = {
     ...baseRoutes,
     [`${MY}/_api/v2.0/me/drive/sharedWithMe?$top=200`]: { value: [] }, // read from the OneDrive host, not the team site's
-    [`${SITE}/_api/v2.0/shares/${shareId(`${SITE}/sites/Class/Shared Documents/General`)}/driveItem?${SEL}`]: { ...folder('G', 'General'), webUrl: `${SITE}/sites/Class/Shared Documents/General` },
+    [`${SITE}/_api/v2.0/shares/${shareId(`${SITE}/sites/Class/Shared%20Documents/General`)}/driveItem?${SEL}`]: { ...folder('G', 'General'), webUrl: `${SITE}/sites/Class/Shared Documents/General` },
     [children('G')]: { value: [folder('W10', 'Week 10'), file('O', 'Outline.pdf'), folder('W2', 'Week 2')], '@odata.nextLink': `${children('G')}&page=2` },
     [`${children('G')}&page=2`]: { value: [file('A', 'Assessment.docx')] },
     [children('W2')]: { value: [file('S2', 'Slides.pptx'), folder('L2', 'Lab')] },
@@ -139,12 +141,17 @@ test('a class folder still reads when OneDrive (shared with you) does not', asyn
   assert.deepEqual(course.folders.map((f) => [f.title, f.sections[0].items.map((i) => i.title)]), [['Files', ['Unit guide.pdf']]]);
 });
 
-test('file details: a fresh download link, and a transcript by its id', async () => {
+test('file details: download addresses that do not expire, sent with the login', async () => {
   const od = fakeDrive({
     ...baseRoutes,
-    [`${item(MY, 'D1', 'F1')}?$select=name,size,@content.downloadUrl`]: { name: 'c4-lab.html', size: 42, '@content.downloadUrl': `${MY}/download?tempauth=y` },
+    [`${item(MY, 'D1', 'F1')}?$select=name,size`]: { name: 'c4-lab.html', size: 42 },
   });
-  const files = oneDriveFiles(od);
-  assert.deepEqual(await files.meta(item(MY, 'D1', 'F1')), { name: 'c4-lab.html', size: 42, url: `${MY}/download?tempauth=y`, locked: null });
-  assert.deepEqual(await files.meta(`${item(MY, 'D1', 'R1')}/media/transcripts/T1`), { name: 'Lecture.vtt', size: 1000, url: `${MY}/t1?tempauth=x`, locked: null });
+  const asked = [];
+  const files = oneDriveFiles(od, { fetch: async (url, init) => (asked.push([url, init.credentials]), new Response('x')) });
+  assert.deepEqual(await files.meta(item(MY, 'D1', 'F1')), { name: 'c4-lab.html', size: 42, url: `${item(MY, 'D1', 'F1')}/content`, locked: null });
+  const transcript = `${item(MY, 'D1', 'R1')}/media/transcripts/T1`;
+  assert.deepEqual(await files.meta(transcript), { name: 'Lecture.vtt', size: 1000, url: `${transcript}/streamContent`, locked: null });
+  assert.equal((await files.meta(`${item(MY, 'D1', 'R1')}/media/transcripts/GONE`)).locked, 'The transcript is gone');
+  await files.bytes(`${transcript}/streamContent`);
+  assert.deepEqual(asked, [[`${transcript}/streamContent`, 'include']]);
 });
