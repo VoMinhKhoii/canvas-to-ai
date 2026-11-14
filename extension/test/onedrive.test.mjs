@@ -129,6 +129,11 @@ test('an ended login is said in words, not as a closed course', async () => {
   await assert.rejects(scanOneDrive(fakeDrive({ [`${MY}/_api/v2.0/me/drive/sharedWithMe?$top=200`]: 403 }), `${MY}/`), (e) => e.loggedOut && !e.status && /Log in to OneDrive/.test(e.message));
 });
 
+test('a missing folder and OneDrive (404) are not called an ended login', async () => {
+  const tab = `${SITE}/sites/Gone/Shared%20Documents/Forms/AllItems.aspx`;
+  await assert.rejects(scanOneDrive(fakeDrive({}), tab), (e) => e.missing && !e.loggedOut && !e.status && /couldn't find your files/.test(e.message));
+});
+
 test('a class folder still reads when OneDrive (shared with you) does not', async () => {
   const tab = `${SITE}/sites/Class/Shared%20Documents/Forms/AllItems.aspx`;
   const course = await scanOneDrive(fakeDrive({

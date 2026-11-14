@@ -57,14 +57,20 @@ export function notebook(text) {
 
 // WebVTT / SRT captions → the transcript: cue numbers, timings, styling tags
 // and repeated lines (rolling captions) removed.
+// A cue's timing: "00:00:04.235 --> 00:00:09.496" (WebVTT, hours optional) or
+// "00:00:01,000 --> 00:00:03,000" (SRT). A caption that only mentions an
+// arrow ("A --> B") is text.
+const TIMING = /^\s*(?:\d+:)?\d{1,2}:\d{2}[.,]\d{1,3}\s+-->\s+(?:\d+:)?\d{1,2}:\d{2}[.,]\d{1,3}/;
+
 export function subtitles(text) {
   const lines = [];
   const raws = text.replace(/\r/g, '').split('\n');
   for (const [i, raw] of raws.entries()) {
-    // The line before a cue's timing is its id: a number, or any text (Teams: "7eb4…/35-0").
-    if (raws[i + 1]?.includes('-->')) continue;
+    // A cue's id is the line between a blank line and its timing: a number,
+    // or any text (Teams: "7eb4…/35-0").
+    if (TIMING.test(raws[i + 1] ?? '') && !raws[i - 1]?.trim()) continue;
     const line = removeBefore(removeBefore(raw, /<[^>]+>/g, '>'), /\{\\[^}]*\}/g, '}').trim();
-    if (!line || /^WEBVTT/.test(line) || /^(NOTE|STYLE|REGION)\b/.test(line) || /^\d+$/.test(line) || /-->/.test(line)) continue;
+    if (!line || /^WEBVTT/.test(line) || /^(NOTE|STYLE|REGION)\b/.test(line) || /^\d+$/.test(line) || TIMING.test(line)) continue;
     if (lines.at(-1) !== line) lines.push(line);
   }
   // Captions are short fragments of sentences: join them into paragraphs.
