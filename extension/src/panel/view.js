@@ -25,7 +25,7 @@ export const icon = (name, cls = 'ico') => `<svg class="${cls}" viewBox="0 0 16 
 
 const KIND_BY_EXT = [
   [/^pdf$/, 'pdf'], [/^(pptx?|pps|pot|odp|key)$/, 'slides'], [/^(xlsx?|xlsm|xlsb|ods|csv|tsv|numbers)$/, 'sheet'],
-  [/^(docx?|dotx?|odt|rtf|txt|md|epub|pages)$/, 'doc'], [/^(zip|rar|7z|tar|gz)$/, 'archive'],
+  [/^(docx?|dotx?|odt|rtf|txt|md|epub|pages|vtt|srt)$/, 'doc'], [/^(zip|rar|7z|tar|gz)$/, 'archive'],
   [/^(png|jpe?g|gif|webp|svg|heic)$/, 'image'], [/^(mp4|mov|m4v|avi|mkv|webm|mp3|m4a|wav)$/, 'video'],
 ];
 function itemIcon(item) {

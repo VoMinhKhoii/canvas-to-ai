@@ -19,6 +19,11 @@ pick a week or single files, and:
 It uses the student's own Canvas login in their tab (no API token, no server); files are
 converted on their computer.
 
+**OneDrive and Teams** (⋯ › OneDrive and Teams, after the student allows `*.sharepoint.com`):
+lecture recordings shared with the student, each with its Teams transcript (the part an AI can
+read), files people shared, and the folder open in a SharePoint tab. A Teams class's files are a
+folder in SharePoint: in Teams, open the channel, then Files › Open in SharePoint.
+
 ## What it reads
 
 | Material | Formats |
@@ -50,6 +55,9 @@ Code map (see `../CONTEXT.md` for the words):
 
 - `src/canvas/`: the **Course scan** (`scan.js`) behind the Canvas seam; `tab-proxy.js`
   runs in the Canvas tab, `tab-adapter.js` is the extension's adapter.
+- `src/onedrive/`: **OneDrive and Teams** (`scan.js`): the folder open in a SharePoint tab,
+  and what was shared with the student, through SharePoint's drive API; `adapter.js` asks it
+  with the student's login.
 - `src/pack/`: the **pack builder** (`build.js`) and one module per format in
   `formats/`, routed by `formats/index.js`. Heavy libraries load only when needed.
 - `src/panel/`: the side panel: `selection.js` (what is picked), `view.js` (what is

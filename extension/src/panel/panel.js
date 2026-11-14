@@ -2,6 +2,8 @@
 // selection, and runs Copy text for AI, Download and Save with pictures.
 import { scanCourseInFull } from '../canvas/scan.js';
 import { tabCanvas, canvasFiles } from '../canvas/tab-adapter.js';
+import { scanOneDrive, ONEDRIVE_URL } from '../onedrive/scan.js';
+import { oneDrive, oneDriveFiles } from '../onedrive/adapter.js';
 import { createPackBuilder } from '../pack/build.js';
 import { safe, pathAllocator } from '../pack/names.js';
 import { createSelection } from './selection.js';
@@ -17,6 +19,14 @@ const COPY_LABEL = 'Copy text for AI';
 // Chrome saves files itself (chrome.downloads); Safari has no downloads API.
 const SAVES_FILES = Boolean(chrome.downloads);
 const SAFARI_SITES = '<br><br>If it is open: in Safari, allow Canvas to AI on your Canvas site (Safari › Settings › Extensions › Canvas to AI › Edit Websites).';
+// OneDrive and Teams (SharePoint): an optional permission, asked for from ⋯ › OneDrive and Teams.
+// Wildcards only: sites.js counts an exact-origin grant as a Canvas site.
+// "*.teams.microsoft.com" also matches teams.microsoft.com itself.
+const SHAREPOINT_TABS = ['https://*.sharepoint.com/*'];
+const SHAREPOINT = { origins: [...SHAREPOINT_TABS, 'https://*.teams.microsoft.com/*', 'https://*.teams.cloud.microsoft/*'] };
+const TEAMS_URL = /^https:\/\/([^/]+\.)?teams\.(microsoft\.com|cloud\.microsoft)\//;
+const TEAMS_HINT = 'Teams keeps a class\'s files in SharePoint, where Canvas to AI reads them. In Teams, open the class channel, then <b>Files › Open in SharePoint</b>, and press <b>Scan again</b> in that tab.<br><br>For lecture recordings and files people shared with you, open your <b>OneDrive</b> and press <b>Scan again</b>.';
+const ONEDRIVE_HINT = 'Open your OneDrive in a tab for lecture recordings and files people shared with you, then press <b>Scan again</b>.<br><br>Teams keeps a class\'s files in SharePoint: in Teams, open the channel, then <b>Files › Open in SharePoint</b>, and press <b>Scan again</b>.';
 const CLOSED_COURSE = 'Canvas only lets students in this course read it. You may see its syllabus, but its modules and files are closed. If the course has a <b>Join this Course</b> button, join and scan again.';
 
 // pdf.js and a canvas to render picture pages, loaded on the first PDF.
@@ -37,9 +47,19 @@ const pdf = {
 
 const state = { course: null, sel: null, open: new Set(), files: null, packs: null, busy: false, pack: null };
 
-// The course tab: the active tab if it is a Canvas course, else the most
-// recently used one (sites.js).
-const findCourseTab = () => findCanvasTab(COURSE_ID);
+// The tab to read: the active tab if it is a Canvas course, a SharePoint page
+// (OneDrive, Teams files) or Teams, else the most recently used Canvas course
+// or SharePoint tab. Chrome shows the extension a SharePoint or Teams tab's
+// address only once the student allowed OneDrive and Teams. oneDrive:
+// SharePoint and Teams tabs only. Safari has no lastAccessed: a tab shown in a
+// window comes first.
+async function findTab({ oneDrive = false } = {}) {
+  const course = oneDrive ? null : await findCanvasTab(COURSE_ID); // also lets its site serve downloads (sites.js)
+  const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (active && (active.id === course?.id || ONEDRIVE_URL.test(active.url || '') || TEAMS_URL.test(active.url || ''))) return active;
+  const sharepoint = await chrome.tabs.query({ url: SHAREPOINT_TABS });
+  return [course, ...sharepoint].filter(Boolean).sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0) || b.active - a.active)[0];
+}
 
 // The school's own Canvas address, typed into ownSiteForm().
 function askForOwnSite() {
@@ -89,7 +109,7 @@ function showTerms() {
   });
 }
 
-async function scan() {
+async function scan({ oneDrive = false } = {}) {
   if (state.busy) return;
   if (!agreed()) return showTerms(); // nothing is read from Canvas before that
   state.busy = true;
@@ -99,14 +119,20 @@ async function scan() {
   Object.assign(state, { course: null, sel: null, open: new Set(), packs: null });
   forgetPack();
   try {
-    const tab = await findCourseTab();
+    const tab = await findTab({ oneDrive });
+    if (ONEDRIVE_URL.test(tab?.url || '')) return await scanSharePoint(tab);
+    if (TEAMS_URL.test(tab?.url || '')) {
+      $('course').textContent = 'OneDrive and Teams';
+      $('code').textContent = '';
+      return message(TEAMS_HINT);
+    }
     if (!tab) {
-      $('course').textContent = 'Canvas to AI';
+      $('course').textContent = oneDrive ? 'OneDrive and Teams' : 'Canvas to AI';
       $('code').textContent = '';
       // Safari shows an extension a tab's address only on websites the student allowed it on.
       // Safari keeps its own list of allowed websites (SAFARI_SITES).
-      message(`Open a course in Canvas, then press <b>Scan again</b>.${SAVES_FILES ? '' : SAFARI_SITES}`);
-      if (SAVES_FILES) {
+      message(oneDrive ? ONEDRIVE_HINT : `Open a course in Canvas, then press <b>Scan again</b>. For OneDrive and Teams, use <b>⋯ › OneDrive and Teams</b>.${SAVES_FILES ? '' : SAFARI_SITES}`);
+      if (SAVES_FILES && !oneDrive) {
         $('folders').insertAdjacentHTML('beforeend', ownSiteForm());
         askForOwnSite();
       }
@@ -114,12 +140,7 @@ async function scan() {
     }
     const canvas = await tabCanvas(tab.id);
     const course = await scanCourseInFull(canvas, Number(COURSE_ID.exec(new URL(tab.url).pathname)[1]), { onProgress: (text) => setStatus(text) });
-    const files = canvasFiles(canvas);
-    Object.assign(state, { course, sel: createSelection(course), open: new Set(), files, packs: createPackBuilder({ files, pdf }), pack: null });
-    $('course').textContent = course.name;
-    $('code').textContent = course.code;
-    $('folders').innerHTML = folderCards(course, state.sel, state.open);
-    setStatus('');
+    show(course, canvasFiles(canvas));
   } catch (e) {
     // 403: logged in, but the course is open to its own students only (a
     // course in All Courses may still show visitors its syllabus).
@@ -130,6 +151,25 @@ async function scan() {
     state.busy = false;
     updateBar();
   }
+}
+
+function show(course, files) {
+  Object.assign(state, { course, sel: createSelection(course), open: new Set(), files, packs: createPackBuilder({ files, pdf }), pack: null });
+  $('course').textContent = course.name;
+  $('code').textContent = course.code;
+  $('folders').innerHTML = folderCards(course, state.sel, state.open);
+  // Download all of Canvas is for Canvas only. Downloading all of OneDrive
+  // would take every lecture video (gigabytes): pick what to download there.
+  for (const action of ['all', 'course']) menu.querySelector(`[data-action="${action}"]`)?.toggleAttribute('hidden', course.root === 'OneDrive');
+  setStatus('');
+}
+
+// A SharePoint tab: OneDrive, or a Teams channel's files opened in SharePoint.
+async function scanSharePoint(tab) {
+  $('course').textContent = 'OneDrive and Teams';
+  $('code').textContent = new URL(tab.url).hostname;
+  const od = oneDrive();
+  show(await scanOneDrive(od, tab.url, { onProgress: (text) => setStatus(text) }), oneDriveFiles());
 }
 
 function redraw(folderId) {
@@ -254,7 +294,8 @@ document.addEventListener('click', (e) => !e.target.closest('#menu, #more') && c
 
 // Downloads keep the course's tree as Canvas shows it:
 // Canvas/<course>/<NN module>/<section>/<file>, pages as Markdown beside the files.
-const folderDir = (course, folder) => `Canvas/${safe(course.name)}/${String(course.folders.indexOf(folder) + 1).padStart(2, '0')} ${safe(folder.title.replace(/\s*\/\s*/g, ' - '))}`; // "Week 1/Topic 1" → "Week 1 - Topic 1"
+const rootOf = (course) => course.root ?? 'Canvas';
+const folderDir = (course, folder) => `${rootOf(course)}/${safe(course.name)}/${String(course.folders.indexOf(folder) + 1).padStart(2, '0')} ${safe(folder.title.replace(/\s*\/\s*/g, ' - '))}`; // "Week 1/Topic 1" → "Week 1 - Topic 1"
 // A file already there is never replaced (it may be the student's own edit, or
 // another course of the same name): Chrome adds " (1)" to the new one.
 const download = (url, filename) => chrome.downloads.download({ url, filename, conflictAction: 'uniquify', saveAs: false });
@@ -289,7 +330,7 @@ async function saver(files, zipName) {
 }
 
 async function downloadTree(course, files, packs, entries) {
-  const out = await saver(files, `Canvas - ${safe(course.name)}.zip`);
+  const out = await saver(files, `${rootOf(course)} - ${safe(course.name)}.zip`);
   const wanted = entries.filter(({ item }) => !item.locked && item.kind !== 'link');
   const place = pathAllocator(); // files and pages share the folders: no name is used twice
   let saved = 0;
@@ -330,7 +371,7 @@ async function downloadTree(course, files, packs, entries) {
   }
   const skipped = entries.length - wanted.length;
   setStatus(
-    `${SAVES_FILES ? 'Downloading' : 'Saved'} ${saved} ${saved === 1 ? 'file' : 'files'}${pages ? ` and ${pages} ${pages === 1 ? 'page' : 'pages'}` : ''} to ${esc(out.where(`Canvas › ${safe(course.name)}`))}.` +
+    `${SAVES_FILES ? 'Downloading' : 'Saved'} ${saved} ${saved === 1 ? 'file' : 'files'}${pages ? ` and ${pages} ${pages === 1 ? 'page' : 'pages'}` : ''} to ${esc(out.where(`${rootOf(course)} › ${safe(course.name)}`))}.` +
       (locked ? ` ${locked} ${locked === 1 ? 'is' : 'are'} locked.` : '') +
       (tooBig ? ` ${tooBig} ${tooBig === 1 ? 'was' : 'were'} left out: the zip stops at ${MAX_ZIP / 1024 / 1024} MB, so download fewer weeks at a time.` : '') +
       (skipped ? ` ${skipped} ${skipped === 1 ? 'link or locked item was' : 'links or locked items were'} skipped.` : ''),
@@ -345,8 +386,8 @@ const downloadCourse = ({ course, files, packs, sel }) => downloadTree(course, f
 
 async function saveWithPictures({ course, files }) {
   const pack = await currentPack();
-  const folder = `Canvas/${safe(course.name)} - for AI`;
-  const out = await saver(files, `Canvas - ${safe(course.name)} - for AI.zip`);
+  const folder = `${rootOf(course)}/${safe(course.name)} - for AI`;
+  const out = await saver(files, `${rootOf(course)} - ${safe(course.name)} - for AI.zip`);
   await out.add(`${folder}/course.md`, new Blob([pack.markdown], { type: 'text/markdown' }));
   for (const img of pack.images) await out.add(`${folder}/images/${img.name}`, img.url ?? img.blob);
   await out.save();
@@ -369,10 +410,16 @@ const openExport = exportFlow({
   },
   close: () => (state.course ? ($('folders').innerHTML = folderCards(state.course, state.sel, state.open)) : scan()),
 });
+// ⋯ › OneDrive and Teams: Chrome asks the student, once, to let the extension
+// read SharePoint (it must be asked from the click itself, before any wait).
+async function openOneDrive() {
+  if (!(await chrome.permissions.request(SHAREPOINT))) return setStatus('OneDrive and Teams need that permission. Nothing was read.');
+  await scan({ oneDrive: true });
+}
 const downloadAll = () => (agreed() ? openExport() : showTerms());
 if (!SAVES_FILES) menu.querySelector('[data-action="all"]').remove(); // Chrome first: Safari would need its own zip handling
 
-const ACTIONS = { picked: downloadPicked, course: downloadCourse, all: downloadAll, save: saveWithPictures, clear: clearPicks, terms: showTerms };
+const ACTIONS = { onedrive: openOneDrive, picked: downloadPicked, course: downloadCourse, all: downloadAll, save: saveWithPictures, clear: clearPicks, terms: showTerms };
 menu.addEventListener('click', async (e) => {
   const action = ACTIONS[e.target.closest('[data-action]')?.dataset.action];
   if (!action) return;
