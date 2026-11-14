@@ -7,11 +7,12 @@ import { safe, pathAllocator } from '../pack/names.js';
 import { createSelection } from './selection.js';
 import { limiter } from '../limit.js';
 import { htmlToMd } from '../pack/formats/html-to-md.js';
-import { folderCards, folderCard, pickedLine, loadingCards, termsCard, esc } from './view.js';
+import { folderCards, folderCard, pickedLine, loadingCards, termsCard, ownSiteForm, esc } from './view.js';
 import { exportFlow } from './export-panel.js';
+import { findCanvasTab, siteOrigin, allowSite } from './sites.js';
 
 const $ = (id) => document.getElementById(id);
-const COURSE_URL = /^https:\/\/[^/]+\.instructure\.com\/courses\/(\d+)/;
+const COURSE_ID = /^\/courses\/(\d+)/;
 const COPY_LABEL = 'Copy text for AI';
 // Chrome saves files itself (chrome.downloads); Safari has no downloads API.
 const SAVES_FILES = Boolean(chrome.downloads);
@@ -37,13 +38,22 @@ const pdf = {
 const state = { course: null, sel: null, open: new Set(), files: null, packs: null, busy: false, pack: null };
 
 // The course tab: the active tab if it is a Canvas course, else the most
-// recently used one. Safari has no lastAccessed (and the panel is a window of
-// its own there): a course tab shown in a window comes first.
-async function findCourseTab() {
-  const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (COURSE_URL.test(active?.url || '')) return active;
-  const tabs = await chrome.tabs.query({ url: 'https://*.instructure.com/courses/*' });
-  return tabs.sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0) || b.active - a.active)[0];
+// recently used one (sites.js).
+const findCourseTab = () => findCanvasTab(COURSE_ID);
+
+// The school's own Canvas address, typed into ownSiteForm().
+function askForOwnSite() {
+  $('own-site').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const origin = siteOrigin($('own-site-url').value);
+    if (!origin) return ($('own-site-note').textContent = 'Type the address you see in your Canvas tab, like canvas.school.edu.');
+    try {
+      await allowSite(origin); // Chrome's prompt: the first thing the click does
+      scan();
+    } catch (err) {
+      $('own-site-note').textContent = err.message;
+    }
+  });
 }
 
 function setStatus(html, tone = '') {
@@ -94,11 +104,16 @@ async function scan() {
       $('course').textContent = 'Canvas to AI';
       $('code').textContent = '';
       // Safari shows an extension a tab's address only on websites the student allowed it on.
+      // Safari keeps its own list of allowed websites (SAFARI_SITES).
       message(`Open a course in Canvas, then press <b>Scan again</b>.${SAVES_FILES ? '' : SAFARI_SITES}`);
+      if (SAVES_FILES) {
+        $('folders').insertAdjacentHTML('beforeend', ownSiteForm());
+        askForOwnSite();
+      }
       return;
     }
     const canvas = await tabCanvas(tab.id);
-    const course = await scanCourseInFull(canvas, Number(COURSE_URL.exec(tab.url)[1]), { onProgress: (text) => setStatus(text) });
+    const course = await scanCourseInFull(canvas, Number(COURSE_ID.exec(new URL(tab.url).pathname)[1]), { onProgress: (text) => setStatus(text) });
     const files = canvasFiles(canvas);
     Object.assign(state, { course, sel: createSelection(course), open: new Set(), files, packs: createPackBuilder({ files, pdf }), pack: null });
     $('course').textContent = course.name;

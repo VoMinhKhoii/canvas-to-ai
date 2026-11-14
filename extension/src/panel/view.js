@@ -115,6 +115,15 @@ export const termsCard = (button) => `<section class="card terms">
     <button class="primary" id="agree">${esc(button)}</button>
   </section>`;
 
+// A Canvas on the school's own address (canvas.school.edu) needs the
+// student's OK once: Chrome asks, then the panel checks it is Canvas.
+export const ownSiteForm = () => `<form id="own-site" class="own-site">
+  <label for="own-site-url">Is your Canvas on your school's own address? Type it here:</label>
+  <input id="own-site-url" type="text" inputmode="url" placeholder="canvas.school.edu" autocomplete="off" spellcheck="false" />
+  <button class="text-button" type="submit">Allow Canvas to AI there</button>
+  <p id="own-site-note" role="status"></p>
+</form>`;
+
 export const loadingCards = () => Array.from({ length: 5 }, () => '<div class="card ghost"><span></span><span></span></div>').join('');
 
 // Download all of Canvas: the cards of the export, one per step.
