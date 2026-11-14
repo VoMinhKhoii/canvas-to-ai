@@ -23,31 +23,23 @@ Everything the developer dashboard asks for, in the order it asks. Paste each bl
 ```
 Weeks of course materials, ready to paste into AI.
 
-Open your Canvas course, open the Canvas to AI side panel, and your course appears as its weeks and modules. Pick a week, a section such as Tutorial or Lab, or single files. Press Copy text for AI and paste into ChatGPT, Claude or Gemini to study, ask questions or make revision notes.
+Open a Canvas course, pick a week or single files, and press Copy text for AI. Your lecture slides, documents and course pages become one text you can paste into an AI chat to study, ask questions or make notes.
 
-What it reads
-• PDFs: text in reading order with headings, bullets, code and tables; scanned and diagram pages as pictures
-• Slides: PowerPoint (.pptx and old .ppt) and .odp, with speaker notes
-• Documents: Word (.docx and old .doc), .odt, .rtf, .txt, Markdown and EPUB
-• Spreadsheets: Excel, .ods, .csv, with formulas kept
-• Code, Jupyter notebooks, captions (.vtt, .srt), calendar invites and .zip archives
-• Canvas pages, assignments, quizzes, discussions, announcements and the syllabus, including what isn't in a module
-• Your own submissions: the files, text and links you handed in, earlier attempts too, under each assignment
-• Your grades, rubric marks and teacher comments, and your group's files, pages and discussions
+You can also download the files you pick, one folder per week.
 
-Also in the ⋯ menu
-• Download the files you picked, or the whole course, into Downloads › Canvas › your course, one folder per week
-• Save with pictures: the text plus the slide and page pictures it refers to, ready to drag into a chat
-• OneDrive and Teams: your class's Teams files and the lecture recordings shared with you, each with its transcript ready for AI
-• Download all of Canvas: every course you tick, current and past, one folder each, files as they are and pages as PDFs, with your grades, rubric marks, teacher comments, quizzes, group files and your lecturers' notes on your submissions. You see the total size first. If it stops midway (closed panel, lost Wi-Fi, ended login) it carries on where it was. Only if you turn them on: discussion replies and your inbox messages
+Your own submissions are listed too, so you can copy or download the work you handed in.
 
-Private by design
-Everything is read and converted on your own computer, with your own Canvas or Microsoft login. Nothing is sent to the developer or anyone else: no account, no server, no analytics. Nothing is read until you agree to the short terms card.
+A scan also lists your grades, rubric marks, teacher comments, quizzes, your group's files, pages and discussions, and the course pages and files that aren't in a module, so you can copy those too.
 
-Use it fairly
-Course materials belong to your school and lecturers: use them for your own study. Some courses don't allow AI tools; check each course's rules.
+If your school runs Canvas on its own address, add that address in the panel and it works the same way.
 
-Canvas to AI is made by a student. It is not made or endorsed by Instructure or by any school. Canvas is a trademark of Instructure, Inc.
+OneDrive and Teams: open your class's Teams files, or the lecture recordings shared with you, and copy each recording's transcript for AI.
+
+Download all of Canvas saves every course you tick, current and past, into its own folder: files, pages as PDFs, grades, teacher comments and your lecturers' notes on your work. You see the size first, and it carries on where it stopped. Inbox messages and classmates' discussion replies only if you turn them on.
+
+Everything runs on your computer with your own Canvas or Microsoft login. Nothing is sent anywhere else.
+
+Made by a student. Not made or endorsed by Instructure or any school.
 ```
 
 **Category**: Education
@@ -80,6 +72,10 @@ Canvas to AI is made by a student. It is not made or endorsed by Instructure or 
 | Host `https://*.instructure.com/*` | Canvas sites are hosted on instructure.com: the panel finds the course tab, reads the course and downloads the picked files there. Download all of Canvas also opens the student's own submitted files in Canvas's document viewer (Canvadocs, also on instructure.com) to save a copy with the lecturer's notes on it. |
 | Host `https://*.canvas-user-content.com/*`, `https://*.inscloudgate.net/*` | Canvas serves course files from these hosts; downloads of picked files are redirected to them. |
 | Optional host `https://*/*` | Not granted at install. Some schools run Canvas on their own address (canvas.school.edu). The student types that address in the panel and Chrome asks them to allow that one site. The extension then checks that it is Canvas and gives the permission back if it is not. It is used there exactly as instructure.com is above. It is also how OneDrive and Teams is turned on (from the panel's ⋯ › OneDrive and Teams): Chrome asks the student to allow `https://*.sharepoint.com/*`, where Microsoft keeps OneDrive and Teams files, plus `https://*.teams.microsoft.com/*` and `https://*.teams.cloud.microsoft/*`, only so the panel can recognise a Teams tab and say where its files are. The panel then reads the files shared with the student and the folder open in their SharePoint tab, with the student's own Microsoft login. |
+
+The dashboard has one **Host permission justification** field (1,000 characters at most), which holds the host rows above in short:
+
+> https://*.instructure.com/* is where Canvas sites are hosted: the panel finds the course tab, reads the course and downloads the picked files there. Download all also opens the student's own submitted files in Canvadocs (on instructure.com) to save a copy with the lecturer's notes. https://*.canvas-user-content.com/* and https://*.inscloudgate.net/* serve Canvas course files. Optional https://*/*, never granted at install: (1) a school's own Canvas address, which the student types and allows as that one site; if it isn't Canvas the permission is given back; (2) from ⋯ › OneDrive and Teams, https://*.sharepoint.com/* to read the student's OneDrive and Teams class files with their own Microsoft login, plus https://*.teams.microsoft.com/* and https://*.teams.cloud.microsoft/* only to recognise a Teams tab and point to its files. No other sites are accessed.
 
 **Remote code**: No, I am not using remote code. (All code, including pdf.js and SheetJS, is bundled in the package.)
 
