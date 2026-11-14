@@ -19,4 +19,5 @@ Words used in code, tests and the interface. Keep them exact.
 ## Seams
 
 - **Canvas seam** (`src/canvas`): everything the extension asks Canvas goes through one `get(url)` adapter. In the panel the adapter asks a tiny script in the Canvas tab, which fetches with the student's own session; in tests it serves recorded responses.
+- **OneDrive seam** (`src/onedrive`): OneDrive and Teams files go through one `get(url)` adapter too. The panel asks SharePoint's drive API itself (the extension's optional `*.sharepoint.com` permission sends the student's login cookies). A OneDrive "course" has a card for each subfolder of the folder open in the tab, plus "Recordings shared with you" (each Teams recording's transcript beside its video) and "Files shared with you".
 - **File seam** (`src/pack`): the pack reads file details, bytes and page renders through adapters, so the whole pack can be built in Node.

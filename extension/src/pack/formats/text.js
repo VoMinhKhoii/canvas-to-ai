@@ -59,7 +59,10 @@ export function notebook(text) {
 // and repeated lines (rolling captions) removed.
 export function subtitles(text) {
   const lines = [];
-  for (const raw of text.replace(/\r/g, '').split('\n')) {
+  const raws = text.replace(/\r/g, '').split('\n');
+  for (const [i, raw] of raws.entries()) {
+    // The line before a cue's timing is its id: a number, or any text (Teams: "7eb4…/35-0").
+    if (raws[i + 1]?.includes('-->')) continue;
     const line = removeBefore(removeBefore(raw, /<[^>]+>/g, '>'), /\{\\[^}]*\}/g, '}').trim();
     if (!line || /^WEBVTT/.test(line) || /^(NOTE|STYLE|REGION)\b/.test(line) || /^\d+$/.test(line) || /-->/.test(line)) continue;
     if (lines.at(-1) !== line) lines.push(line);
