@@ -35,8 +35,9 @@ Nothing is read before you agree to the terms card.
 Nowhere except your own computer.
 
 - Everything is converted inside the extension, on your computer.
-- The extension makes requests only to Canvas (`*.instructure.com`) and the hosts Canvas serves
-  its files from (`*.canvas-user-content.com`, `*.inscloudgate.net`).
+- The extension makes requests only to Canvas (`*.instructure.com`, or your school's own Canvas
+  address if you allow it there) and the hosts Canvas serves its files from
+  (`*.canvas-user-content.com`, `*.inscloudgate.net`).
 - It sends nothing to the developer or to anyone else. There are no analytics, no tracking, no
   ads and no server.
 - The text goes to your clipboard when you press **Copy text for AI**, and files go to your

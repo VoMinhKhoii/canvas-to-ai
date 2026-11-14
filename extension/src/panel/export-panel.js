@@ -11,21 +11,15 @@ import { canvadocs } from '../canvas/canvadocs.js';
 import { listCourses, planExport, planTotals, runExport } from '../export.js';
 import { chromeSaver } from './chrome-saver.js';
 import { exportStore } from './export-store.js';
+import { findCanvasTab } from './sites.js';
 import { exportPicker, exportRunning, exportSummary, exportFinished, exportProblem, exportResume } from './view.js';
 
 const $ = (id) => document.getElementById(id);
-const CANVAS_URL = /^https:\/\/[^/]+\.instructure\.com\//;
 const REMEMBER_EVERY = 20; // saves; a few redone after a crash cost nothing
 
 const newRoot = () => `Canvas export ${new Date().toISOString().slice(0, 10)} ${Date.now().toString(36)}`;
 const latest = (tabs) => tabs.sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0) || b.active - a.active)[0];
 
-// Any Canvas tab will do: the course list is not tied to one course.
-async function findCanvasTab() {
-  const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (CANVAS_URL.test(active?.url || '')) return active;
-  return latest(await chrome.tabs.query({ url: 'https://*.instructure.com/*' }));
-}
 // Another tab of the same Canvas site, when the one in use closes.
 const findSiteTab = async (site) => latest(await chrome.tabs.query({ url: `${site}/*` }));
 
@@ -180,7 +174,7 @@ export function exportFlow({ area, bar, setBusy, close }) {
   }
 
   const open = () => busy(async () => {
-    const found = await findCanvasTab();
+    const found = await findCanvasTab(); // any Canvas tab will do: the course list is not tied to one course
     if (!found) throw new Error('Open Canvas in a tab first, then try again.');
     site = new URL(found.url).origin;
     docs = canvadocs(site);

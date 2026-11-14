@@ -78,6 +78,7 @@ Canvas to AI is made by a student. It is not made or endorsed by Instructure or 
 | `clipboardWrite` | "Copy text for AI" puts the converted course text on the clipboard. |
 | Host `https://*.instructure.com/*` | Canvas sites are hosted on instructure.com: the panel finds the course tab, reads the course and downloads the picked files there. Download all of Canvas also opens the student's own submitted files in Canvas's document viewer (Canvadocs, also on instructure.com) to save a copy with the lecturer's notes on it. |
 | Host `https://*.canvas-user-content.com/*`, `https://*.inscloudgate.net/*` | Canvas serves course files from these hosts; downloads of picked files are redirected to them. |
+| Optional host `https://*/*` | Not granted at install. Some schools run Canvas on their own address (canvas.school.edu). The student types that address in the panel and Chrome asks them to allow that one site. The extension then checks that it is Canvas and gives the permission back if it is not. It is used there exactly as instructure.com is above. |
 
 **Remote code**: No, I am not using remote code. (All code, including pdf.js and SheetJS, is bundled in the package.)
 

@@ -1,12 +1,17 @@
 import { lockedReason } from './locked.js';
 
 // Download links are only followed to Canvas and its file hosts (the
-// extension's host permissions), over https.
+// extension's host permissions), over https: a Canvas on a school's own
+// address serves its files from there too, once the student allowed it.
 const FILE_HOSTS = /(^|\.)(instructure\.com|canvas-user-content\.com|inscloudgate\.net)$/;
+const sites = new Set();
+export function allowFileSite(origin) {
+  sites.add(origin);
+}
 export function isCanvasFileUrl(url) {
   try {
-    const { protocol, hostname } = new URL(url);
-    return protocol === 'https:' && FILE_HOSTS.test(hostname);
+    const { protocol, hostname, origin } = new URL(url);
+    return protocol === 'https:' && (FILE_HOSTS.test(hostname) || sites.has(origin));
   } catch {
     return false;
   }
