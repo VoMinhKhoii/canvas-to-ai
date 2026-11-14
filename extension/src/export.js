@@ -12,6 +12,7 @@ import { readMessages } from './canvas/talk.js';
 import { stopsTheRun, stopReason } from './canvas/stops.js';
 import { readAll, studentEnrollments, studentGroups } from './canvas/read.js';
 import { htmlToMd } from './pack/formats/html-to-md.js';
+import { losesText, pdfSize } from './pack/page-shown.js';
 import { pathAllocator, safe } from './pack/names.js';
 
 export const BIG_FILE = 200 * 1024 * 1024;
@@ -93,9 +94,13 @@ export async function planExport(canvas, files, courses, { messages = false, rep
       if (item.kind === 'link') links.push(`- ${folder.title}: [${item.title}](${item.url})`);
       else if (item.locked) notSaved.push({ title, reason: item.locked });
       else if (item.kind === 'page') {
-        const path = place(at, `${fileName(item.title)}.md`, `page:${pageNo++}`);
-        const md = `# ${item.title}\n\n${htmlToMd(item.html)}\n`;
-        entries.push({ path, md, size: md.length, title });
+        // An export is kept to be read: its pages are PDFs, made as they are
+        // saved. One with text the PDF's font cannot draw stays Markdown.
+        const html = item.html ?? '';
+        const asPdf = !losesText(item.title, html);
+        const path = place(at, `${fileName(item.title)}.${asPdf ? 'pdf' : 'md'}`, `page:${pageNo++}`);
+        const md = asPdf ? null : `# ${item.title}\n\n${htmlToMd(html)}\n`;
+        entries.push(asPdf ? { path, page: { title: item.title, html }, size: pdfSize(html), title } : { path, md, size: md.length, title });
       } else {
         const meta = await info;
         if (!(meta?.url || meta?.annotated) || meta.locked) {
@@ -197,7 +202,7 @@ export const planTotals = ({ entries }) => {
   const big = entries.filter((e) => e.size > BIG_FILE);
   return {
     files: entries.filter((e) => e.url || e.annotated).length,
-    pages: entries.filter((e) => e.md !== undefined).length,
+    pages: entries.filter((e) => e.page || e.md !== undefined).length,
     bytes: entries.reduce((n, e) => n + e.size, 0),
     bigFiles: big.length,
     bigBytes: big.reduce((n, e) => n + e.size, 0),

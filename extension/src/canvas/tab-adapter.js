@@ -64,8 +64,9 @@ export function canvasFiles(canvas) {
       const { data } = await canvas.get(`/api/v1/files/${id}`);
       return fileDetails(data);
     },
-    async bytes(url) {
-      const res = await fetch(url).catch(() => {
+    async bytes(url, { signal } = {}) {
+      const res = await fetch(url, { signal }).catch((e) => {
+        if (signal?.aborted) throw e;
         throw new Error("couldn't download it: check your connection and copy again");
       });
       if (!res.ok) throw new Error(`download failed (${res.status})`);
