@@ -1,6 +1,8 @@
 // The Canvas sites the extension may read: every *.instructure.com, and each
 // Canvas on a school's own address (canvas.school.edu) the student allowed.
 // Chrome's granted host permissions are the list: nothing else is stored.
+import { allowFileSite } from '../canvas/file.js';
+
 const INSTRUCTURE = 'https://*.instructure.com/*';
 
 // A site the student allowed is one exact origin; a wildcard grant (Canvas's
@@ -14,13 +16,16 @@ const latest = (tabs) => tabs.sort((a, b) => (b.lastAccessed || 0) - (a.lastAcce
 
 // The tab to read: the active tab if it is on a Canvas site and its path
 // matches `path`, else the most recently used one. Safari has no lastAccessed:
-// a tab shown in a window comes first.
+// a tab shown in a window comes first. The site of the tab found, and only
+// that, may serve the files the panel then downloads (a Canvas on the
+// school's own address serves them from there).
 export async function findCanvasTab(path = /^\//) {
   const url = await canvasSites();
   const onPath = (t) => path.test(new URL(t.url).pathname);
   const [active] = await chrome.tabs.query({ active: true, currentWindow: true, url });
-  if (active && onPath(active)) return active;
-  return latest((await chrome.tabs.query({ url })).filter(onPath));
+  const tab = active && onPath(active) ? active : latest((await chrome.tabs.query({ url })).filter(onPath));
+  if (tab) allowFileSite(new URL(tab.url).origin);
+  return tab;
 }
 
 // Another tab of the same Canvas site, when the one in use closes.
@@ -38,13 +43,14 @@ export function siteOrigin(text) {
   }
 }
 
-// Is this site a Canvas? Its API answers JSON at /api/v1/users/self (a 401
-// with "unauthenticated" when the panel's request carries no login).
+// Is this site a Canvas? Asked without a login, Canvas answers
+// /api/v1/users/self with exactly this: a 401, status "unauthenticated" and
+// its errors list.
 export async function looksLikeCanvas(origin, fetcher = fetch) {
   try {
     const res = await fetcher(`${origin}/api/v1/users/self`, { credentials: 'omit', headers: { Accept: 'application/json' } });
     const body = JSON.parse((await res.text()).replace(/^while\(1\);/, ''));
-    return Boolean(body && (body.id || body.status === 'unauthenticated' || Array.isArray(body.errors)));
+    return res.status === 401 && body?.status === 'unauthenticated' && Array.isArray(body.errors) && body.errors.length > 0;
   } catch {
     return false;
   }

@@ -2,7 +2,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { findCanvasTab, siteOrigin, looksLikeCanvas, allowSite } from '../src/panel/sites.js';
 import { isCanvasFileUrl, fileDetails } from '../src/canvas/file.js';
-import { tabCanvas } from '../src/canvas/tab-adapter.js';
 
 // Chrome with these granted origins and these tabs ({ id, url, active, lastAccessed }).
 function fakeChrome(origins, tabs, { grant = true } = {}) {
@@ -12,7 +11,6 @@ function fakeChrome(origins, tabs, { grant = true } = {}) {
   globalThis.chrome = {
     asked,
     removed,
-    scripting: { executeScript: async () => {} },
     permissions: {
       getAll: async () => ({ origins: [...origins] }),
       request: async ({ origins: o }) => (asked.push(...o), grant && origins.push(...o), grant),
@@ -20,7 +18,6 @@ function fakeChrome(origins, tabs, { grant = true } = {}) {
     },
     tabs: {
       query: async ({ active, url }) => tabs.filter((t) => (!active || t.active) && [url].flat().some((p) => glob(p).test(t.url))),
-      get: async (id) => tabs.find((t) => t.id === id),
     },
   };
   return globalThis.chrome;
@@ -60,12 +57,13 @@ test('sites: file servers are not Canvas sites, and the course path must match',
 
 test('sites: a Canvas the panel opened serves its own files; others still do not', async () => {
   assert.equal(isCanvasFileUrl('https://canvas.mine.edu/files/1/download?verifier=v'), false);
-  fakeChrome([...BUILT_IN, 'https://canvas.mine.edu/*'], [{ id: 1, url: 'https://canvas.mine.edu/courses/3' }]);
-  await tabCanvas(1);
+  fakeChrome([...BUILT_IN, 'https://canvas.mine.edu/*', 'https://canvas.other.edu/*'], [{ id: 1, url: 'https://canvas.mine.edu/courses/3' }]);
+  await findCanvasTab();
   assert.equal(isCanvasFileUrl('https://canvas.mine.edu/files/1/download?verifier=v'), true);
   assert.equal(fileDetails({ display_name: 'a.pdf', url: 'https://canvas.mine.edu/files/1/download' }).url, 'https://canvas.mine.edu/files/1/download');
   assert.equal(isCanvasFileUrl('http://canvas.mine.edu/files/1/download'), false);
   assert.equal(isCanvasFileUrl('https://evil.example/files/1/download'), false);
+  assert.equal(isCanvasFileUrl('https://canvas.other.edu/files/1/download'), false); // allowed, but not the tab read
 });
 
 test('sites: a wildcard grant ("on all sites") is not a Canvas', async () => {
@@ -84,7 +82,9 @@ test('sites: what the student types becomes an https origin', () => {
 const answer = (status, body) => async () => ({ status, text: async () => body });
 test('sites: Canvas is told apart by its API', async () => {
   assert.equal(await looksLikeCanvas('https://c.edu', answer(401, '{"status":"unauthenticated","errors":[{"message":"user authorization required"}]}')), true);
-  assert.equal(await looksLikeCanvas('https://c.edu', answer(200, 'while(1);{"id":5,"name":"A"}')), true);
+  assert.equal(await looksLikeCanvas('https://c.edu', answer(200, 'while(1);{"id":5,"name":"A"}')), false); // asked without a login: never 200
+  assert.equal(await looksLikeCanvas('https://api.edu', answer(404, '{"errors":[{"message":"Not found"}]}')), false);
+  assert.equal(await looksLikeCanvas('https://api.edu', answer(401, '{"status":"unauthenticated","errors":[]}')), false);
   assert.equal(await looksLikeCanvas('https://bb.edu', answer(404, '<html>Not found</html>')), false);
   assert.equal(await looksLikeCanvas('https://bb.edu', answer(200, '{"ok":true}')), false);
   assert.equal(await looksLikeCanvas('https://gone.edu', async () => Promise.reject(new TypeError('Failed to fetch'))), false);
@@ -97,7 +97,7 @@ test('sites: a site that is not Canvas gives its permission back', async () => {
   try {
     await assert.rejects(allowSite('https://vuws.westernsydney.edu.au'), /vuws\.westernsydney\.edu\.au doesn't look like Canvas/);
     assert.deepEqual(chrome.removed, ['https://vuws.westernsydney.edu.au/*']);
-    globalThis.fetch = answer(401, '{"status":"unauthenticated"}');
+    globalThis.fetch = answer(401, '{"status":"unauthenticated","errors":[{"message":"user authorization required"}]}');
     await allowSite('https://canvas.school.edu');
     assert.deepEqual(chrome.removed, ['https://vuws.westernsydney.edu.au/*']); // kept
     fakeChrome([...BUILT_IN], [], { grant: false });
