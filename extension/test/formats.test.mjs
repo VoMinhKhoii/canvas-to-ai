@@ -238,6 +238,9 @@ test('captions become a transcript; rtf keeps its text; notebooks keep code cell
   // Teams names each cue with an id that is not a number.
   const teams = 'WEBVTT\r\n\r\n7eb4ecd8-9cde/35-0\r\n00:00:04.235 --> 00:00:09.496\r\nmethod to help you.\r\n\r\n7eb4ecd8-9cde/35-1\r\n00:00:09.496 --> 00:00:14.180\r\nBut it is hard.';
   assert.equal((await convert('lecture.vtt', teams)).md, 'method to help you.\n\nBut it is hard.');
+  // A caption that mentions an arrow is text, and so is the line before it.
+  const arrows = '1\n00:00:01,000 --> 00:00:03,000\nKeep this explanation.\nA --> B\n\n2\n00:00:03,000 --> 00:00:05,000\nThen C.';
+  assert.equal((await convert('lecture.srt', arrows)).md, 'Keep this explanation.\n\nA --> B Then C.');
   const rtfText = '{\\rtf1\\ansi{\\fonttbl{\\f0 Arial;}}{\\colortbl;\\red0\\green0\\blue0;}\\f0 Caf\\\'e9 menu\\par Second line\\par}';
   assert.equal((await convert('menu.rtf', rtfText)).md, 'Café menu\nSecond line');
   const nb = JSON.stringify({ metadata: { kernelspec: { language: 'python' } }, cells: [{ cell_type: 'markdown', source: ['# Lab'] }, { cell_type: 'code', source: 'print(1)' }] });

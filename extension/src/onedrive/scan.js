@@ -93,7 +93,11 @@ export async function scanOneDrive(od, tabUrl, { onProgress = () => {} } = {}) {
     getAll(`${myOrigin}/_api/v2.0/me/drive/sharedWithMe?$top=200`, MAX_SHARED),
   ]);
   for (const { reason } of [open, shared]) if (reason && ![401, 403, 404].includes(reason.status)) throw reason;
-  if (!open.value?.folder && shared.reason) throw Object.assign(new Error('Log in to OneDrive in this tab, then press Scan again.'), { loggedOut: true });
+  // Nothing to show: only a 401/403 means the login ended; a 404 is said as it is.
+  if (!open.value?.folder && shared.reason) {
+    if ([401, 403].includes(shared.reason.status)) throw Object.assign(new Error('Log in to OneDrive in this tab, then press Scan again.'), { loggedOut: true });
+    throw Object.assign(new Error("OneDrive couldn't find your files here. Open your OneDrive or a class's files in this tab, then press Scan again."), { missing: true });
+  }
   const closed = (e) => ([403, 404].includes(e.status) ? null : Promise.reject(e)); // a folder this student can't open
 
   // A drive item as a Course item, with its details: its download address is
