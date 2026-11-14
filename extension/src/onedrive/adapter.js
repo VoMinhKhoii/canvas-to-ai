@@ -18,22 +18,15 @@ export function oneDrive({ fetch = globalThis.fetch } = {}) {
   };
 }
 
-// The file seam's adapter: an item's id is its address in the drive API.
-// Its `url` never expires: the drive API's content address, which sends the
-// student's cookies to a freshly signed download link each time (a link
-// looked up once would expire while the panel stays open). A transcript's
-// is its streamContent, answered with the same cookies.
-export function oneDriveFiles(od, { fetch = globalThis.fetch } = {}) {
+// The file seam's adapter. Every OneDrive item carries its details (the scan
+// has them), so meta() is never asked. Download addresses never expire: the
+// drive API's content address sends the student's cookies on to a freshly
+// signed link each time, and a transcript's streamContent answers with the
+// same cookies.
+export function oneDriveFiles({ fetch = globalThis.fetch } = {}) {
   return {
-    async meta(id) {
-      if (/\/media\/transcripts\/[^/]+$/.test(id)) {
-        const [list, tid] = [await od.get(id.replace(/\/[^/]+$/, '')), id.split('/').pop()];
-        const t = list.value.find((x) => x.id === tid);
-        if (!t) return { name: '', size: 0, url: '', locked: 'The transcript is gone' };
-        return { name: t.displayName.replace(/\.\w+$/, '.vtt'), size: t.size ?? 0, url: `${id}/streamContent`, locked: null };
-      }
-      const it = await od.get(`${id}?$select=name,size`);
-      return { name: it.name, size: it.size ?? 0, url: `${id}/content`, locked: null };
+    async meta() {
+      throw new Error('OneDrive items carry their details');
     },
     async bytes(url) {
       const res = await fetch(url, { credentials: 'include' }).catch(() => {

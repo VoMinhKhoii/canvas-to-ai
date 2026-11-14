@@ -87,28 +87,36 @@ export async function scanOneDrive(od, tabUrl, { onProgress = () => {} } = {}) {
   // on a team site's. Either read can fail on its own (a folder this student
   // can't open, a OneDrive never visited): only both failing is an ended login.
   const myOrigin = origin.replace(/^https:\/\/([^.]+?)(-my)?\./, 'https://$1-my.');
-  const settle = (p) => p.then((value) => ({ value }), (error) => ({ error }));
   const folderUrl = folderUrlOf(tabUrl);
-  const [open, shared] = await Promise.all([
-    folderUrl ? settle(get(`${origin}/_api/v2.0/shares/${shareId(folderUrl)}/driveItem?${SELECT}`)) : { value: null },
-    settle(getAll(`${myOrigin}/_api/v2.0/me/drive/sharedWithMe?$top=200`, MAX_SHARED)),
+  const [open, shared] = await Promise.allSettled([
+    folderUrl ? get(`${origin}/_api/v2.0/shares/${shareId(folderUrl)}/driveItem?${SELECT}`) : null,
+    getAll(`${myOrigin}/_api/v2.0/me/drive/sharedWithMe?$top=200`, MAX_SHARED),
   ]);
-  for (const { error } of [open, shared]) if (error && ![401, 403, 404].includes(error.status)) throw error;
-  if (!open.value?.folder && shared.error) throw Object.assign(new Error('Log in to OneDrive in this tab, then press Scan again.'), { loggedOut: true });
+  for (const { reason } of [open, shared]) if (reason && ![401, 403, 404].includes(reason.status)) throw reason;
+  if (!open.value?.folder && shared.reason) throw Object.assign(new Error('Log in to OneDrive in this tab, then press Scan again.'), { loggedOut: true });
   const closed = (e) => ([403, 404].includes(e.status) ? null : Promise.reject(e)); // a folder this student can't open
 
-  // A drive item as a Course item.
-  const fileItem = (it, title = it.name) => ({ kind: 'file', id: itemApi(originOf(it.webUrl), it.parentReference.driveId, it.id), title, fileName: it.name, locked: null });
+  // A drive item as a Course item, with its details: its download address is
+  // the drive API's content address, which never expires (adapter.js).
+  const fileItem = (it) => {
+    const id = itemApi(originOf(it.webUrl), it.parentReference.driveId, it.id);
+    return { kind: 'file', id, title: it.name, fileName: it.name, locked: null, details: { name: it.name, size: it.size ?? 0, url: `${id}/content`, locked: null } };
+  };
   const folderItem = (it) => ({ kind: 'file', id: `folder:${it.webUrl}`, title: it.name, fileName: it.name, locked: 'A folder: open it in this tab to list its files' });
 
-  // Each video gets its transcript beside it, when Teams made one.
+  // Each video gets its transcript beside it, when Teams made one. A meeting
+  // recording is named by its time: its meeting (the section) or its folder
+  // (often "Recordings") already says what it is.
   let lookups = 0;
-  async function withTranscript(item, title) {
+  async function withTranscript(item) {
     if (!VIDEO.test(extOf(item.fileName))) return [item];
+    const title = recordingName(item.fileName)?.when ?? item.fileName.replace(/\.\w+$/, '');
     const list = lookups++ < MAX_TRANSCRIPTS ? await get(`${item.id}/media/transcripts`).then((r) => r.value ?? [], () => []) : [];
     if (!list.length) return [{ ...item, title }];
     const t = list.find((x) => x.isDefault) ?? list[0];
-    const transcript = { kind: 'file', id: `${item.id}/media/transcripts/${t.id}`, title: `${title} (transcript)`, fileName: `${item.fileName.replace(/\.\w+$/, '')}.vtt`, locked: null };
+    const id = `${item.id}/media/transcripts/${t.id}`;
+    const fileName = `${item.fileName.replace(/\.\w+$/, '')}.vtt`; // named after its video: a meeting's transcripts share one name
+    const transcript = { kind: 'file', id, title: `${title} (transcript)`, fileName, locked: null, details: { name: fileName, size: t.size ?? 0, url: `${id}/streamContent`, locked: null } };
     return [transcript, { ...item, title: `${title} (video)` }];
   }
 
@@ -141,27 +149,27 @@ export async function scanOneDrive(od, tabUrl, { onProgress = () => {} } = {}) {
   // are listed, to be opened in the tab).
   async function openFolder(top) {
     let budget = MAX_FOLDERS;
-    // A meeting recording is named by its time: its folder (often
-    // "Recordings") already says what it is.
-    const folderFile = (f) => withTranscript(fileItem(f), recordingName(f.name)?.when ?? f.name.replace(/\.\w+$/, ''));
-    const list = (it) => (budget-- > 0 ? getAll(`${itemApi(originOf(it.webUrl), it.parentReference?.driveId ?? top.parentReference.driveId, it.id)}/children?$top=200&${SELECT}`).catch(closed) : Promise.resolve(null));
     const byName = (a, b) => a.name.localeCompare(b.name, 'en', { numeric: true });
+    // A folder's files as items (sorted, videos with their transcripts) and
+    // its subfolders (sorted), or null when it can't be read (closed to this
+    // student, or past MAX_FOLDERS).
+    async function contents(it) {
+      const children = budget-- > 0 ? await getAll(`${itemApi(originOf(it.webUrl), it.parentReference.driveId, it.id)}/children?$top=200&${SELECT}`).catch(closed) : null;
+      if (!children) return null;
+      const items = (await Promise.all(children.filter((c) => c.file).sort(byName).map((f) => withTranscript(fileItem(f))))).flat();
+      return { items, subs: children.filter((c) => c.folder).sort(byName) };
+    }
     // Every file under `it`, as sections titled by their path below it.
     async function sections(it, path, depth) {
-      const children = await list(it);
-      if (!children) return [{ title: path, items: [folderItem(it)] }];
-      const files = children.filter((c) => c.file).sort(byName);
-      const subs = children.filter((c) => c.folder).sort(byName);
-      const items = (await Promise.all(files.map(folderFile))).flat();
+      const found = await contents(it);
+      if (!found) return [{ title: path, items: [folderItem(it)] }];
+      const { items, subs } = found;
       if (depth >= DEPTH) items.push(...subs.map(folderItem));
       const own = items.length ? [{ title: path, items }] : [];
       const nested = depth < DEPTH ? await Promise.all(subs.map((s) => sections(s, path ? `${path}/${s.name}` : s.name, depth + 1))) : [];
       return [...own, ...nested.flat()];
     }
-    const children = await list(top);
-    const files = (children ?? []).filter((c) => c.file).sort(byName);
-    const subs = (children ?? []).filter((c) => c.folder).sort(byName);
-    const loose = (await Promise.all(files.map(folderFile))).flat();
+    const { items: loose, subs } = (await contents(top)) ?? { items: [], subs: [] };
     const cards = await Promise.all(subs.map(async (s) => ({ id: `folder-${s.id}`, title: s.name, sections: await sections(s, null, 2) })));
     const name = top.name === 'root' ? 'Files' : top.name;
     return [...(loose.length ? [{ id: 'here', title: name, sections: [{ title: null, items: loose }] }] : []), ...cards];
@@ -178,8 +186,7 @@ export async function scanOneDrive(od, tabUrl, { onProgress = () => {} } = {}) {
         const from = `From ${sharer(it)}`;
         if (it.folder) return ['others', from, [folderItem(it)]];
         const rec = recordingName(it.name);
-        if (rec) return ['recordings', rec.meeting, await withTranscript(fileItem(it), rec.when)];
-        if (VIDEO.test(extOf(it.name))) return ['recordings', from, await withTranscript(fileItem(it), it.name.replace(/\.\w+$/, ''))];
+        if (rec || VIDEO.test(extOf(it.name))) return ['recordings', rec?.meeting ?? from, await withTranscript(fileItem(it))];
         return ['others', from, [fileItem(it)]];
       }),
     );
@@ -187,10 +194,9 @@ export async function scanOneDrive(od, tabUrl, { onProgress = () => {} } = {}) {
     const groups = { recordings: new Map(), others: new Map() };
     for (const [card, title, entries] of placed) groups[card].set(title, [...(groups[card].get(title) ?? []), ...entries]);
     const sections = (map) => [...map].map(([title, list]) => ({ title, items: list }));
-    const [recordings, others] = [groups.recordings, groups.others];
     return [
-      { id: 'recordings', title: 'Recordings shared with you', sections: sections(recordings) },
-      { id: 'shared', title: 'Files shared with you', sections: sections(others) },
+      { id: 'recordings', title: 'Recordings shared with you', sections: sections(groups.recordings) },
+      { id: 'shared', title: 'Files shared with you', sections: sections(groups.others) },
     ];
   }
 }

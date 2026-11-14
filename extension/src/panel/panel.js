@@ -169,7 +169,7 @@ async function scanSharePoint(tab) {
   $('course').textContent = 'OneDrive and Teams';
   $('code').textContent = new URL(tab.url).hostname;
   const od = oneDrive();
-  show(await scanOneDrive(od, tab.url, { onProgress: (text) => setStatus(text) }), oneDriveFiles(od));
+  show(await scanOneDrive(od, tab.url, { onProgress: (text) => setStatus(text) }), oneDriveFiles());
 }
 
 function redraw(folderId) {

@@ -141,17 +141,13 @@ test('a class folder still reads when OneDrive (shared with you) does not', asyn
   assert.deepEqual(course.folders.map((f) => [f.title, f.sections[0].items.map((i) => i.title)]), [['Files', ['Unit guide.pdf']]]);
 });
 
-test('file details: download addresses that do not expire, sent with the login', async () => {
-  const od = fakeDrive({
-    ...baseRoutes,
-    [`${item(MY, 'D1', 'F1')}?$select=name,size`]: { name: 'c4-lab.html', size: 42 },
-  });
+test('file details: carried by each item, with download addresses that do not expire', async () => {
+  const course = await scanOneDrive(fakeDrive(baseRoutes), `${MY}/`);
+  const [transcript, video] = course.folders[0].sections[0].items;
+  assert.deepEqual(video.details, { name: recording.remoteItem.name, size: 9e8, url: `${item(MY, 'D1', 'R1')}/content`, locked: null });
+  // Named after its video: every lecture in a series has a transcript called "<meeting>.json".
+  assert.deepEqual(transcript.details, { name: 'Systems Architecture Online Lecture-20261110_143613-Meeting Recording.vtt', size: 1000, url: `${item(MY, 'D1', 'R1')}/media/transcripts/T1/streamContent`, locked: null });
   const asked = [];
-  const files = oneDriveFiles(od, { fetch: async (url, init) => (asked.push([url, init.credentials]), new Response('x')) });
-  assert.deepEqual(await files.meta(item(MY, 'D1', 'F1')), { name: 'c4-lab.html', size: 42, url: `${item(MY, 'D1', 'F1')}/content`, locked: null });
-  const transcript = `${item(MY, 'D1', 'R1')}/media/transcripts/T1`;
-  assert.deepEqual(await files.meta(transcript), { name: 'Lecture.vtt', size: 1000, url: `${transcript}/streamContent`, locked: null });
-  assert.equal((await files.meta(`${item(MY, 'D1', 'R1')}/media/transcripts/GONE`)).locked, 'The transcript is gone');
-  await files.bytes(`${transcript}/streamContent`);
-  assert.deepEqual(asked, [[`${transcript}/streamContent`, 'include']]);
+  await oneDriveFiles({ fetch: async (url, init) => (asked.push([url, init.credentials]), new Response('x')) }).bytes(transcript.details.url);
+  assert.deepEqual(asked, [[transcript.details.url, 'include']]); // sent with the student's login
 });
