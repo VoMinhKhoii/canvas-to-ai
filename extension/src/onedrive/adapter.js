@@ -19,23 +19,24 @@ export function oneDrive({ fetch = globalThis.fetch } = {}) {
 }
 
 // The file seam's adapter: an item's id is its address in the drive API.
-// Download links are short-lived and carry their own key (no cookies needed),
-// so they are looked up when a file is picked, not when the folder is read.
+// Its `url` never expires: the drive API's content address, which sends the
+// student's cookies to a freshly signed download link each time (a link
+// looked up once would expire while the panel stays open). A transcript's
+// is its streamContent, answered with the same cookies.
 export function oneDriveFiles(od, { fetch = globalThis.fetch } = {}) {
   return {
     async meta(id) {
       if (/\/media\/transcripts\/[^/]+$/.test(id)) {
         const [list, tid] = [await od.get(id.replace(/\/[^/]+$/, '')), id.split('/').pop()];
         const t = list.value.find((x) => x.id === tid);
-        if (!t?.temporaryDownloadUrl) return { name: '', size: 0, url: '', locked: 'The transcript is gone' };
-        return { name: t.displayName.replace(/\.\w+$/, '.vtt'), size: t.size ?? 0, url: t.temporaryDownloadUrl, locked: null };
+        if (!t) return { name: '', size: 0, url: '', locked: 'The transcript is gone' };
+        return { name: t.displayName.replace(/\.\w+$/, '.vtt'), size: t.size ?? 0, url: `${id}/streamContent`, locked: null };
       }
-      const it = await od.get(`${id}?$select=name,size,@content.downloadUrl`);
-      const url = it['@content.downloadUrl'] ?? '';
-      return { name: it.name, size: it.size ?? 0, url, locked: url ? null : "OneDrive won't let you download it" };
+      const it = await od.get(`${id}?$select=name,size`);
+      return { name: it.name, size: it.size ?? 0, url: `${id}/content`, locked: null };
     },
     async bytes(url) {
-      const res = await fetch(url).catch(() => {
+      const res = await fetch(url, { credentials: 'include' }).catch(() => {
         throw new Error("couldn't download it: check your connection and copy again");
       });
       if (!res.ok) throw new Error(`download failed (${res.status})`);
