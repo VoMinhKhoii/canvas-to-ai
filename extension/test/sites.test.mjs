@@ -22,6 +22,7 @@ function fakeChrome(origins, tabs, { grant = true } = {}) {
   };
   return globalThis.chrome;
 }
+const COURSE = /^\/courses\/(\d+)/;
 const BUILT_IN = ['https://*.instructure.com/*', 'https://*.canvas-user-content.com/*', 'https://*.inscloudgate.net/*'];
 
 test('sites: a course on a Canvas the student allowed is found like one on instructure.com', async () => {
@@ -30,7 +31,7 @@ test('sites: a course on a Canvas the student allowed is found like one on instr
     { id: 2, url: 'https://canvas.school.edu/courses/42/modules', lastAccessed: 5 },
     { id: 3, url: 'https://x.instructure.com/courses/7', lastAccessed: 2 },
   ]);
-  assert.equal((await findCanvasTab('/courses/')).id, 2);
+  assert.equal((await findCanvasTab(COURSE)).id, 2);
 });
 
 test('sites: the active tab wins, and a site never allowed is not Canvas', async () => {
@@ -38,14 +39,19 @@ test('sites: the active tab wins, and a site never allowed is not Canvas', async
     { id: 1, url: 'https://canvas.other.edu/courses/9', active: true },
     { id: 2, url: 'https://x.instructure.com/courses/7', lastAccessed: 1 },
   ]);
-  assert.equal((await findCanvasTab('/courses/')).id, 2);
+  assert.equal((await findCanvasTab(COURSE)).id, 2);
   fakeChrome(BUILT_IN, [{ id: 3, url: 'https://x.instructure.com/courses/7', active: true }, { id: 4, url: 'https://y.instructure.com/courses/8', lastAccessed: 9 }]);
-  assert.equal((await findCanvasTab('/courses/')).id, 3);
+  assert.equal((await findCanvasTab(COURSE)).id, 3);
+});
+
+test('sites: a tab on the course list is not a course: the course tab behind it is', async () => {
+  fakeChrome(BUILT_IN, [{ id: 1, url: 'https://school.instructure.com/courses/', active: true }, { id: 2, url: 'https://school.instructure.com/courses/42', lastAccessed: 1 }]);
+  assert.equal((await findCanvasTab(COURSE)).id, 2);
 });
 
 test('sites: file servers are not Canvas sites, and the course path must match', async () => {
   fakeChrome(BUILT_IN, [{ id: 1, url: 'https://x.canvas-user-content.com/courses/1', active: true }, { id: 2, url: 'https://x.instructure.com/calendar' }]);
-  assert.equal(await findCanvasTab('/courses/'), undefined);
+  assert.equal(await findCanvasTab(COURSE), undefined);
   assert.equal((await findCanvasTab()).id, 2);
 });
 

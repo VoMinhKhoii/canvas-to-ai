@@ -26,16 +26,16 @@ const matcher = (pattern) => {
 
 const latest = (tabs) => tabs.sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0) || b.active - a.active)[0];
 
-// The tab to read: the active tab if it is on a Canvas site (and under `path`),
-// else the most recently used one. Safari has no lastAccessed: a tab shown in
-// a window comes first.
-export async function findCanvasTab(path = '/') {
+// The tab to read: the active tab if it is on a Canvas site and its path
+// matches `path`, else the most recently used one. Safari has no lastAccessed:
+// a tab shown in a window comes first.
+export async function findCanvasTab(path = /^\//) {
   const sites = await granted();
-  const onCanvas = (url) => sites.some((s) => matcher(s)(url)) && new URL(url).pathname.startsWith(path);
+  const onCanvas = (url) => sites.some((s) => matcher(s)(url)) && path.test(new URL(url).pathname);
   for (const s of sites) if (!s.startsWith('https://*')) allowFileSite(s.slice(0, -2));
   const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (active?.url && onCanvas(active.url)) return active;
-  const tabs = await chrome.tabs.query({ url: sites.map((s) => s.replace(/\/\*$/, `${path}*`)) });
+  const tabs = await chrome.tabs.query({ url: sites });
   return latest(tabs.filter((t) => onCanvas(t.url)));
 }
 

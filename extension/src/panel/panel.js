@@ -39,7 +39,7 @@ const state = { course: null, sel: null, open: new Set(), files: null, packs: nu
 
 // The course tab: the active tab if it is a Canvas course, else the most
 // recently used one (sites.js).
-const findCourseTab = () => findCanvasTab('/courses/');
+const findCourseTab = () => findCanvasTab(COURSE_ID);
 
 // A Canvas on the school's own address (canvas.school.edu) needs the
 // student's OK once. Chrome asks; the panel then checks it is Canvas.
