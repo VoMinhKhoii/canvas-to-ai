@@ -148,6 +148,11 @@ async function scan({ oneDrive = false } = {}) {
     message(`${why}<br><button class="text-button" id="retry">Try again</button>`);
     $('retry')?.addEventListener('click', scan);
   } finally {
+    // Download all of Canvas is for Canvas only. Downloading all of OneDrive
+    // would take every lecture video (gigabytes): pick what to download there.
+    // Set after every scan, so a scan that found nothing shows them again.
+    const oneDriveShown = state.course?.root === 'OneDrive';
+    for (const action of ['all', 'course']) menu.querySelector(`[data-action="${action}"]`)?.toggleAttribute('hidden', oneDriveShown);
     state.busy = false;
     updateBar();
   }
@@ -158,9 +163,6 @@ function show(course, files) {
   $('course').textContent = course.name;
   $('code').textContent = course.code;
   $('folders').innerHTML = folderCards(course, state.sel, state.open);
-  // Download all of Canvas is for Canvas only. Downloading all of OneDrive
-  // would take every lecture video (gigabytes): pick what to download there.
-  for (const action of ['all', 'course']) menu.querySelector(`[data-action="${action}"]`)?.toggleAttribute('hidden', course.root === 'OneDrive');
   setStatus('');
 }
 
